@@ -1,0 +1,9 @@
+structs:
+  - name: Identity
+    type: container
+    children:
+      - name: id
+        type: uint64
+      - name: publicKey
+        type: bytevector
+        size: 48

@@ -1,0 +1,18 @@
+package: penguin
+structs:
+  - name: Penguin
+    type: container
+    children:
+      - name: name
+        type: bytevector
+        size: 32
+      - name: species
+        type: bitvector
+        size: 16
+      - name: awesomness
+        type: uint16
+      - name: cuteness
+        type: uint8
+      - name: identity
+        type: ref
+        ref: Identity
