@@ -73,8 +73,6 @@ func decodeStructFromDecoder(dec *Decoder, v reflect.Value) error {
 	return dec.DecodeContainer(elements...)
 }
 
-
-
 // decodeValue decodes a value based on its type
 func decodeValue(d *Decoder, v reflect.Value, fieldInfo *FieldInfo) error {
 	// Check if value is variable-size
@@ -83,76 +81,3 @@ func decodeValue(d *Decoder, v reflect.Value, fieldInfo *FieldInfo) error {
 	}
 	return decodeFixedField(d, v, fieldInfo)
 }
-
-// getFixedSize returns the size in bytes of a fixed-size type
-func getFixedSize(t reflect.Type, tag *sszTag) (int, error) {
-	switch t.Kind() {
-	case reflect.Uint8:
-		return 1, nil
-	case reflect.Uint16:
-		return 2, nil
-	case reflect.Uint32:
-		return 4, nil
-	case reflect.Uint64:
-		return 8, nil
-	case reflect.Bool:
-		return 1, nil
-	case reflect.Slice:
-		// Fixed-size slices (with ssz-size tag)
-		if tag != nil && len(tag.Size) > 0 {
-			// For bitvector, size is in bits
-			if tag.FieldType == "bitvector" && t.Elem().Kind() == reflect.Uint8 {
-				// Convert bits to bytes
-				return (tag.Size[0] + 7) / 8, nil
-			}
-			// Calculate total size based on element size and count
-			elemTag := &sszTag{}
-			if len(tag.Size) > 1 {
-				elemTag.Size = tag.Size[1:]
-			}
-			elemSize, err := getFixedSize(t.Elem(), elemTag)
-			if err != nil {
-				return 0, err
-			}
-			return elemSize * tag.Size[0], nil
-		}
-		return 0, fmt.Errorf("cannot get fixed size for variable slice")
-	case reflect.Array:
-		if t == uint256Type {
-			if tag != nil && tag.FieldType == "uint128" {
-				return 16, nil
-			}
-			return 32, nil
-		}
-		// Array size is element size * length
-		elemTag := &sszTag{}
-		elemSize, err := getFixedSize(t.Elem(), elemTag)
-		if err != nil {
-			return 0, err
-		}
-		return elemSize * t.Len(), nil
-	case reflect.Ptr:
-		// For pointers, get the size of the pointed type
-		if t.Elem() == uint256Type {
-			if tag != nil && tag.FieldType == "uint128" {
-				return 16, nil
-			}
-			return 32, nil
-		}
-		return getFixedSize(t.Elem(), tag)
-	case reflect.Struct:
-		// For structs, we need to calculate the total fixed size
-		typeInfo, err := GetTypeInfo(t, tag)
-		if err != nil {
-			return 0, err
-		}
-
-		if typeInfo.IsVariable {
-			return -1, nil
-		}
-		return typeInfo.FixedSize, nil
-	default:
-		return 0, fmt.Errorf("cannot get fixed size for type %v", t)
-	}
-}
-
