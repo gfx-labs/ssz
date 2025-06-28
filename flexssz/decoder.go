@@ -154,6 +154,52 @@ func (d *Decoder) ReadOffset() (j int, err error) {
 	return
 }
 
+// ReadAll reads all remaining bytes in the decoder
+func (d *Decoder) ReadAll() ([]byte, error) {
+	remaining := d.Remaining()
+	if len(remaining) == 0 {
+		return []byte{}, nil
+	}
+	buf := make([]byte, len(remaining))
+	n, err := d.Read(buf)
+	if err != nil {
+		return nil, err
+	}
+	if n != len(remaining) {
+		return nil, io.ErrUnexpectedEOF
+	}
+	return buf, nil
+}
+
+func (d *Decoder) ReadUint128() (*uint256.Int, error) {
+	buf := [32]byte{}
+	_, err := d.Read(buf[:16])
+	if err != nil {
+		return nil, err
+	}
+	val := new(uint256.Int)
+	err = val.UnmarshalSSZ(buf[:])
+	if err != nil {
+		return nil, err
+	}
+
+	return val, nil
+}
+
+func (d *Decoder) ReadUint256() (*uint256.Int, error) {
+	bytes, err := d.ReadN(32)
+	if err != nil {
+		return nil, err
+	}
+
+	val := new(uint256.Int)
+	err = val.UnmarshalSSZ(bytes)
+	if err != nil {
+		return nil, err
+	}
+	return val, nil
+}
+
 type DecodeFunc func(*Decoder) error
 
 // ContainerElement represents either a fixed or variable field in a container
@@ -172,7 +218,8 @@ func Variable(fn DecodeFunc) ContainerElement {
 	return ContainerElement{Variable: fn}
 }
 
-// Container creates a nested container
+// Container creates ContainerElement for a nested container, that can be used inside fixed/variable
+// e.g: Variable(Container(Fixed(nil), Fixed(nil)))
 func Container(elements ...ContainerElement) DecodeFunc {
 	return func(d *Decoder) error {
 		return d.DecodeContainer(elements...)
@@ -224,50 +271,4 @@ func (d *Decoder) DecodeContainer(elements ...ContainerElement) error {
 	}
 
 	return nil
-}
-
-// ReadAll reads all remaining bytes in the decoder
-func (d *Decoder) ReadAll() ([]byte, error) {
-	remaining := d.Remaining()
-	if len(remaining) == 0 {
-		return []byte{}, nil
-	}
-	buf := make([]byte, len(remaining))
-	n, err := d.Read(buf)
-	if err != nil {
-		return nil, err
-	}
-	if n != len(remaining) {
-		return nil, io.ErrUnexpectedEOF
-	}
-	return buf, nil
-}
-
-func (d *Decoder) ReadUint128() (*uint256.Int, error) {
-	buf := [32]byte{}
-	_, err := d.Read(buf[:16])
-	if err != nil {
-		return nil, err
-	}
-	val := new(uint256.Int)
-	err = val.UnmarshalSSZ(buf[:])
-	if err != nil {
-		return nil, err
-	}
-
-	return val, nil
-}
-
-func (d *Decoder) ReadUint256() (*uint256.Int, error) {
-	bytes, err := d.ReadN(32)
-	if err != nil {
-		return nil, err
-	}
-
-	val := new(uint256.Int)
-	err = val.UnmarshalSSZ(bytes)
-	if err != nil {
-		return nil, err
-	}
-	return val, nil
 }
