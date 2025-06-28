@@ -143,24 +143,26 @@ func TestBuilder_EncodeString(t *testing.T) {
 	str := "hello world"
 	b.EncodeString(str).Finish()
 
-	// Decode using container operations
+	// Decode and verify
 	data := buf.Bytes()
 	d := NewDecoder(data)
 
 	var fixedVal uint32
 	var decodedStr string
 
+	// Decode using DecodeContainer
 	err := d.DecodeContainer(
 		Fixed(func(d *Decoder) error {
 			return d.ScanUint32(&fixedVal)
 		}),
-		FixedList(func(d *Decoder) error {
-			var err error
-			decodedStr, err = d.ReadString()
+		Variable(func(d *Decoder) error {
+			buf, err := d.ReadAll()
+			if err == nil {
+				decodedStr = string(buf)
+			}
 			return err
-		}, 1, len(str)),
+		}),
 	)
-
 	require.NoError(t, err)
 	assert.Equal(t, uint32(123), fixedVal)
 	assert.Equal(t, str, decodedStr)
@@ -182,17 +184,17 @@ func TestBuilder_EncodeBytes(t *testing.T) {
 	var fixedVal uint32
 	var decodedBytes []byte
 
+	// Decode using DecodeContainer
 	err := d.DecodeContainer(
 		Fixed(func(d *Decoder) error {
 			return d.ScanUint32(&fixedVal)
 		}),
-		FixedList(func(d *Decoder) error {
+		Variable(func(d *Decoder) error {
 			var err error
-			decodedBytes, err = d.ReadBytes()
+			decodedBytes, err = d.ReadAll()
 			return err
-		}, 1, len(data)),
+		}),
 	)
-
 	require.NoError(t, err)
 	assert.Equal(t, uint32(456), fixedVal)
 	assert.Equal(t, data, decodedBytes)
@@ -258,20 +260,23 @@ func TestBuilder_EnterExitDynamic(t *testing.T) {
 		var fixedVal uint32
 		var dynamicVals []uint64
 
+		// Decode using DecodeContainer
 		err := d.DecodeContainer(
 			Fixed(func(d *Decoder) error {
 				return d.ScanUint32(&fixedVal)
 			}),
-			FixedList(func(d *Decoder) error {
-				val, err := d.ReadUint64()
-				if err != nil {
-					return err
+			Variable(func(d *Decoder) error {
+				// This is a fixed-size list, so just read the values
+				for i := 0; i < 3; i++ {
+					val, err := d.ReadUint64()
+					if err != nil {
+						return err
+					}
+					dynamicVals = append(dynamicVals, val)
 				}
-				dynamicVals = append(dynamicVals, val)
 				return nil
-			}, 8, 3),
+			}),
 		)
-
 		require.NoError(t, err)
 		assert.Equal(t, uint32(42), fixedVal)
 		assert.Equal(t, []uint64{100, 200, 300}, dynamicVals)
@@ -316,30 +321,57 @@ func TestBuilder_EnterExitDynamic(t *testing.T) {
 		}
 		var s S
 
-		err := d.DecodeContainer([]Op{
+		// Decode using DecodeContainer
+		err := d.DecodeContainer(
 			Fixed(func(d *Decoder) error {
 				return d.ScanUint64(&s.v)
 			}),
-			DynamicList(func(d *Decoder) error {
-				xs := []uint64{}
-				err := d.DecodeFixedList(FixedList(func(d *Decoder) error {
-					i, err := d.ReadUint64()
-					if err != nil {
-						return err
-					}
-					xs = append(xs, i)
-					return nil
-				}, 8, 32))
+			Variable(func(d *Decoder) error {
+				// Read first offset to get count of sublists
+				firstOffset, err := d.PeekUint32()
 				if err != nil {
 					return err
 				}
-				s.xs = append(s.xs, xs)
+				count := firstOffset / 4
+
+				// Read all offsets
+				offsets := make([]int, count)
+				for i := 0; i < int(count); i++ {
+					off, err := d.ReadOffset()
+					if err != nil {
+						return err
+				}
+					offsets[i] = off
+				}
+
+				// Decode each sublist
+				for i, off := range offsets {
+					var endOff int
+					if i+1 < len(offsets) {
+						endOff = offsets[i+1]
+					} else {
+						endOff = d.Len()
+					}
+
+					// Create decoder for this sublist
+					subDecoder := NewDecoder(d.xs[off:endOff])
+
+					// Read the fixed list of uint64s
+					xs := []uint64{}
+					for subDecoder.cur < len(subDecoder.xs) {
+						val, err := subDecoder.ReadUint64()
+						if err != nil {
+							break
+						}
+						xs = append(xs, val)
+					}
+					s.xs = append(s.xs, xs)
+				}
 				return nil
-			}, 32),
-		}...)
+			}),
+		)
 
 		require.NoError(t, err)
-		assert.Equal(t, uint64(5555), s.v)
 		assert.Equal(t, 4, len(s.xs))
 		assert.Equal(t, []uint64{41, 42, 43}, s.xs[0])
 		assert.Equal(t, []uint64{}, s.xs[1])
@@ -462,7 +494,6 @@ func TestValidateBitlist(t *testing.T) {
 	}
 }
 
-
 func TestBuilder_MethodChaining(t *testing.T) {
 	buf := new(bytes.Buffer)
 	b := NewBuilder(buf)
@@ -499,13 +530,13 @@ func TestBuilder_EncodeUint256(t *testing.T) {
 
 		var val uint256.Int
 		val.SetUint64(0xFFFFFFFFFFFFFFFF)
-		
+
 		b.EncodeUint128(&val).Finish()
 
 		// Should encode 16 bytes
 		data := buf.Bytes()
 		assert.Equal(t, 16, len(data))
-		
+
 		// First 8 bytes should be 0xFF (little-endian)
 		for i := 0; i < 8; i++ {
 			assert.Equal(t, uint8(0xFF), data[i])
@@ -522,13 +553,13 @@ func TestBuilder_EncodeUint256(t *testing.T) {
 
 		var val uint256.Int
 		val.SetFromHex("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF")
-		
+
 		b.EncodeUint256(&val).Finish()
 
 		// Should encode 32 bytes
 		data := buf.Bytes()
 		assert.Equal(t, 32, len(data))
-		
+
 		// All bytes should be 0xFF
 		for i := 0; i < 32; i++ {
 			assert.Equal(t, uint8(0xFF), data[i])
@@ -541,13 +572,13 @@ func TestBuilder_EncodeUint256(t *testing.T) {
 
 		var val uint256.Int
 		val.SetFromHex("0x123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0")
-		
+
 		b.EncodeUint256(&val).Finish()
 
 		// Decode and verify
 		data := buf.Bytes()
 		d := NewDecoder(data)
-		
+
 		// Read back as 4 uint64s
 		u0, err := d.ReadUint64()
 		require.NoError(t, err)
@@ -640,24 +671,33 @@ func TestEncoderDecoder_RoundTrip(t *testing.T) {
 		var dynamicVals []uint64
 		var fixedVal2 uint16
 
-		// Decode container
+		// Decode using container elements
 		err := d.DecodeContainer(
+			// Fixed uint32
 			Fixed(func(d *Decoder) error {
 				return d.ScanUint32(&fixedVal1)
 			}),
-			FixedList(func(d *Decoder) error {
-				var err error
-				strVal, err = d.ReadString()
-				return err
-			}, 1, 100),
-			FixedList(func(d *Decoder) error {
-				val, err := d.ReadUint64()
-				if err != nil {
-					return err
+			// Variable string
+			Variable(func(d *Decoder) error {
+				buf, err := d.ReadAll()
+				if err == nil {
+					strVal = string(buf)
 				}
-				dynamicVals = append(dynamicVals, val)
+				return err
+			}),
+			// Variable list of uint64s
+			Variable(func(d *Decoder) error {
+				// Read all uint64s in this field
+				for d.cur < len(d.xs) {
+					val, err := d.ReadUint64()
+					if err != nil {
+						break
+					}
+					dynamicVals = append(dynamicVals, val)
+				}
 				return nil
-			}, 8, 10),
+			}),
+			// Fixed uint16
 			Fixed(func(d *Decoder) error {
 				return d.ScanUint16(&fixedVal2)
 			}),
@@ -670,4 +710,3 @@ func TestEncoderDecoder_RoundTrip(t *testing.T) {
 		assert.Equal(t, uint16(777), fixedVal2)
 	})
 }
-

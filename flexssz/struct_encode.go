@@ -49,27 +49,27 @@ func encodeStructToBuilder(b *Builder, v any) error {
 
 	rt := rv.Type()
 
-	// Get cached struct info
-	info, err := getStructSSZInfo(rt)
+	// Get type info
+	typeInfo, err := GetTypeInfo(rt, nil)
 	if err != nil {
-		return fmt.Errorf("error getting struct info: %w", err)
+		return fmt.Errorf("error getting type info: %w", err)
 	}
 
 	// Encode fields in declaration order
-	for _, fieldInfo := range info.Fields {
-		fieldValue := rv.Field(fieldInfo.Index)
+	for _, field := range typeInfo.Fields {
+		fieldValue := rv.Field(field.Index)
 
-		if fieldInfo.IsVariable {
+		if field.Type.IsVariable {
 			// For variable-size fields, this will write the offset
-			err := encodeVariableField(b, fieldValue, fieldInfo.Tag)
+			err := encodeVariableField(b, fieldValue, field.Type.Tag)
 			if err != nil {
-				return fmt.Errorf("error encoding variable field %s: %w", fieldInfo.Name, err)
+				return fmt.Errorf("error encoding variable field %s: %w", field.Name, err)
 			}
 		} else {
 			// For fixed fields, encode directly
-			err := encodeFixedField(b, fieldValue, fieldInfo.Tag)
+			err := encodeFixedField(b, fieldValue, field.Type.Tag)
 			if err != nil {
-				return fmt.Errorf("error encoding field %s: %w", fieldInfo.Name, err)
+				return fmt.Errorf("error encoding field %s: %w", field.Name, err)
 			}
 		}
 	}

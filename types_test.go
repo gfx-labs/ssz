@@ -66,15 +66,7 @@ func TestIsValid_BasicTypes(t *testing.T) {
 			name: "valid bool",
 			field: Field{
 				Name: "myBool",
-				Type: TypeBool,
-			},
-			wantErr: false,
-		},
-		{
-			name: "valid bit",
-			field: Field{
-				Name: "myBit",
-				Type: TypeBit,
+				Type: TypeBoolean,
 			},
 			wantErr: false,
 		},
@@ -331,7 +323,7 @@ func TestIsValid_ContainerType(t *testing.T) {
 				Type: TypeContainer,
 				Children: []Field{
 					{Name: "field1", Type: TypeUint32},
-					{Name: "field2", Type: TypeBool},
+					{Name: "field2", Type: TypeBoolean},
 				},
 			},
 			wantErr: false,
@@ -362,7 +354,7 @@ func TestIsValid_ContainerType(t *testing.T) {
 				Type: TypeContainer,
 				Children: []Field{
 					{Name: "field1", Type: TypeUint32},
-					{Name: "", Type: TypeBool},
+					{Name: "", Type: TypeBoolean},
 				},
 			},
 			wantErr: true,
@@ -416,7 +408,7 @@ func TestIsValid_UnionType(t *testing.T) {
 				Type: TypeUnion,
 				Children: []Field{
 					{Name: "option1", Type: TypeUint32},
-					{Name: "option2", Type: TypeBool},
+					{Name: "option2", Type: TypeBoolean},
 				},
 			},
 			wantErr: false,
@@ -609,7 +601,7 @@ func TestIsVariable(t *testing.T) {
 				Type: TypeContainer,
 				Children: []Field{
 					{Name: "field1", Type: TypeUint32},
-					{Name: "field2", Type: TypeBool},
+					{Name: "field2", Type: TypeBoolean},
 				},
 			},
 			want:    false,
@@ -751,10 +743,10 @@ func TestComplexScenarios(t *testing.T) {
 				},
 			},
 		}
-		
+
 		err := field.IsValid(nil)
 		require.NoError(t, err, "deeply nested container validation failed")
-		
+
 		isVar, err := field.IsVariable(nil)
 		require.NoError(t, err)
 		assert.False(t, isVar, "deeply nested container should be fixed")
@@ -772,10 +764,10 @@ func TestComplexScenarios(t *testing.T) {
 				{Name: "var2", Type: TypeBitList, Limit: 2048},
 			},
 		}
-		
+
 		err := field.IsValid(nil)
 		require.NoError(t, err, "mixed container validation failed")
-		
+
 		isVar, err := field.IsVariable(nil)
 		require.NoError(t, err)
 		assert.True(t, isVar, "container with variable fields should be variable")
@@ -789,16 +781,16 @@ func TestComplexScenarios(t *testing.T) {
 				{Name: "value", Type: TypeUint64},
 			}},
 		}
-		
+
 		field := Field{
 			Name: "myRef",
 			Type: TypeRef,
 			Ref:  "Type1",
 		}
-		
+
 		err := field.IsValid(refs)
 		require.NoError(t, err, "ref chain validation failed")
-		
+
 		isVar, err := field.IsVariable(refs)
 		require.NoError(t, err)
 		assert.False(t, isVar, "ref chain to fixed type should be fixed")
@@ -808,31 +800,30 @@ func TestComplexScenarios(t *testing.T) {
 func TestTypeNameConstants(t *testing.T) {
 	// Verify all type constants are defined correctly
 	expectedTypes := map[TypeName]bool{
-		TypeUint8:      true,
-		TypeUint16:     true,
-		TypeUint32:     true,
-		TypeUint64:     true,
-		TypeUint128:    true,
-		TypeUint256:    true,
-		TypeBool:       true,
-		TypeBit:        true,
-		TypeBoolean:    true,
-		TypeContainer:  true,
-		TypeVector:     true,
-		TypeList:       true,
-		TypeBitVector:  true,
-		TypeBitList:    true,
-		TypeUnion:      true,
-		TypeRef:        true,
+		TypeUint8:     true,
+		TypeUint16:    true,
+		TypeUint32:    true,
+		TypeUint64:    true,
+		TypeUint128:   true,
+		TypeUint256:   true,
+		TypeBoolean:   true,
+		TypeContainer: true,
+		TypeVector:    true,
+		TypeList:      true,
+		TypeBitVector: true,
+		TypeBitList:   true,
+		TypeUnion:     true,
+		TypeRef:       true,
 	}
-	
+
 	// Test string values
 	assert.Equal(t, TypeName("uint8"), TypeUint8)
 	assert.Equal(t, TypeName("container"), TypeContainer)
 	assert.Equal(t, TypeName("ref"), TypeRef)
-	
+
 	// Ensure all expected types are present
 	for typeName := range expectedTypes {
 		assert.NotEmpty(t, typeName, "Type name should not be empty")
 	}
 }
+

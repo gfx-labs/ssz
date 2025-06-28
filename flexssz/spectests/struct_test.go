@@ -67,8 +67,7 @@ func TestParseBeaconStateBellatrix(t *testing.T) {
 	var state BeaconStateBellatrix
 
 	// First, validate that the struct has valid SSZ tags
-	err = flexssz.PrecacheStructSSZInfo(BeaconStateBellatrix{})
-	require.NoError(t, err, "Failed to validate BeaconStateBellatrix struct tags")
+	flexssz.MustPrecacheStructSSZInfo(BeaconStateBellatrix{})
 
 	// Decode the SSZ data
 	t.Logf("Attempting to decode %d bytes of SSZ data", len(data))
@@ -207,8 +206,7 @@ func BenchmarkDecodeBeaconStateBellatrix(b *testing.B) {
 	require.NoError(b, err)
 
 	// Pre-cache struct info
-	err = flexssz.PrecacheStructSSZInfo(BeaconStateBellatrix{})
-	require.NoError(b, err)
+	flexssz.MustPrecacheStructSSZInfo(BeaconStateBellatrix{})
 
 	b.ResetTimer()
 	b.ReportAllocs()

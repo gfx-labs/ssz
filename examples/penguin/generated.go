@@ -56,7 +56,7 @@ func (s Penguin) SizeSSZ() int {
 func (s Penguin) MarshalSSZ() ([]byte, error) {
 	// Check that the length matches the expected size
 	if len(s) != s.SizeSSZ() {
-		return nil, ssz.NewSizeMismatchError(s.SizeSSZ(), len(s))
+		return nil, ssz.NewErrSizeMismatch(s.SizeSSZ(), len(s))
 	}
 	return s, nil
 }
@@ -228,7 +228,7 @@ func (s Identity) SizeSSZ() int {
 func (s Identity) MarshalSSZ() ([]byte, error) {
 	// Check that the length matches the expected size
 	if len(s) != s.SizeSSZ() {
-		return nil, ssz.NewSizeMismatchError(s.SizeSSZ(), len(s))
+		return nil, ssz.NewErrSizeMismatch(s.SizeSSZ(), len(s))
 	}
 	return s, nil
 }

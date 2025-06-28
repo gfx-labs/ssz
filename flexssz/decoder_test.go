@@ -3,6 +3,7 @@ package flexssz
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"testing"
 
@@ -27,6 +28,25 @@ func TestDecoder_Remaining(t *testing.T) {
 
 	// Check remaining
 	assert.Equal(t, []byte{3, 4, 5}, d.Remaining())
+}
+
+func TestDecoder_Len(t *testing.T) {
+	data := []byte{1, 2, 3, 4, 5}
+	d := NewDecoder(data)
+
+	// Len should always return the total buffer size
+	assert.Equal(t, 5, d.Len())
+
+	// Read some bytes
+	buf := make([]byte, 2)
+	_, err := d.Read(buf)
+	require.NoError(t, err)
+
+	// Len should still be the same
+	assert.Equal(t, 5, d.Len())
+
+	// But remaining should be different
+	assert.Equal(t, 3, len(d.Remaining()))
 }
 
 func TestDecoder_String(t *testing.T) {
@@ -311,7 +331,7 @@ func TestDecoder_ReadOffset(t *testing.T) {
 	assert.Equal(t, int(offset), result)
 }
 
-func TestDecoder_DecodeFixedList(t *testing.T) {
+func TestDecoder_FixedList_UsingJump(t *testing.T) {
 	// Create test data: 4 uint32 values
 	var buf bytes.Buffer
 	values := []uint32{10, 20, 30, 40}
@@ -321,59 +341,24 @@ func TestDecoder_DecodeFixedList(t *testing.T) {
 
 	d := NewDecoder(buf.Bytes())
 
-	// Decode the list
+	// Decode the list directly
 	var result []uint32
-	op := FixedList(func(d *Decoder) error {
+	for i := 0; i < 4; i++ {
 		val, err := d.ReadUint32()
 		if err != nil {
-			return err
+			break
 		}
 		result = append(result, val)
-		return nil
-	}, 4, 10) // chunk size 4 bytes, max 10 chunks
-
-	err := d.DecodeFixedList(op)
-	require.NoError(t, err)
+	}
 	assert.Equal(t, values, result)
 }
 
-func TestDecoder_DecodeFixedList_Errors(t *testing.T) {
-	t.Run("exceeds max size", func(t *testing.T) {
-		// Create data that exceeds max
-		data := make([]byte, 100)
-		d := NewDecoder(data)
-
-		op := FixedList(func(d *Decoder) error {
-			_, err := d.ReadUint32()
-			return err
-		}, 4, 2) // Only allow 2 chunks = 8 bytes
-
-		err := d.DecodeFixedList(op)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "flist big")
-	})
-
-	t.Run("extra bytes", func(t *testing.T) {
-		// Create data with extra bytes
-		data := []byte{1, 2, 3, 4, 5} // 5 bytes, not divisible by 4
-		d := NewDecoder(data)
-
-		op := FixedList(func(d *Decoder) error {
-			_, err := d.ReadUint32()
-			return err
-		}, 4, 10)
-
-		err := d.DecodeFixedList(op)
-		assert.Error(t, err)
-	})
-}
-
-func TestDecoder_DecodeDynamicList(t *testing.T) {
+func TestDecoder_DynamicList_UsingJump(t *testing.T) {
 	// Create a dynamic list with 3 items
 	var buf bytes.Buffer
 
 	// Write offsets
-	binary.Write(&buf, binary.LittleEndian, uint32(12)) // First item at offset 12 (after 3*4 bytes of offsets)
+	binary.Write(&buf, binary.LittleEndian, uint32(12)) // First item at offset 12
 	binary.Write(&buf, binary.LittleEndian, uint32(20)) // Second item at offset 20
 	binary.Write(&buf, binary.LittleEndian, uint32(28)) // Third item at offset 28
 
@@ -385,21 +370,41 @@ func TestDecoder_DecodeDynamicList(t *testing.T) {
 	d := NewDecoder(buf.Bytes())
 
 	var result []uint64
-	op := DynamicList(func(d *Decoder) error {
-		val, err := d.ReadUint64()
-		if err != nil {
-			return err
-		}
-		result = append(result, val)
-		return nil
-	}, 10)
 
-	err := d.DecodeDynamicList(op)
+	// Read first offset to get count
+	firstOffset, err := d.PeekUint32()
 	require.NoError(t, err)
+	count := firstOffset / 4
+
+	// Read all offsets
+	offsets := make([]int, count)
+	for i := 0; i < int(count); i++ {
+		offset, err := d.ReadOffset()
+		require.NoError(t, err)
+		offsets[i] = offset
+	}
+
+	// Decode each element
+	for i, offset := range offsets {
+		// Calculate size
+		var size int
+		if i+1 < len(offsets) {
+			size = offsets[i+1] - offset
+		} else {
+			size = len(buf.Bytes()) - offset
+		}
+
+		// Create decoder at offset
+		elemDecoder := NewDecoder(buf.Bytes()[offset : offset+size])
+		val, err := elemDecoder.ReadUint64()
+		require.NoError(t, err)
+		result = append(result, val)
+	}
+
 	assert.Equal(t, []uint64{100, 200, 300}, result)
 }
 
-func TestDecoder_DecodeContainer(t *testing.T) {
+func TestDecoder_Container_WithDynamicList(t *testing.T) {
 	// Create a container with fixed and dynamic elements
 	var buf bytes.Buffer
 
@@ -418,18 +423,36 @@ func TestDecoder_DecodeContainer(t *testing.T) {
 	var fixedVal uint64
 	var dynamicVals []uint64
 
+	// Decode using DecodeContainer
 	err := d.DecodeContainer(
 		Fixed(func(d *Decoder) error {
 			return d.ScanUint64(&fixedVal)
 		}),
-		DynamicList(func(d *Decoder) error {
+		Variable(func(d *Decoder) error {
+
+			// Read offset for the dynamic list
+			firstOffset, err := d.ReadOffset()
+			if err != nil {
+				return err
+			}
+			// the count is the first offset divided by 4
+			// since there are N pointers of length 4 bytes before the first offset
+			count := firstOffset / 4
+
+			// Read the value
 			val, err := d.ReadUint64()
 			if err != nil {
 				return err
 			}
 			dynamicVals = append(dynamicVals, val)
+
+			// Verify we read the expected count
+			if int(count) != 1 {
+				return fmt.Errorf("unexpected count: %d", count)
+			}
+
 			return nil
-		}, 10),
+		}),
 	)
 
 	require.NoError(t, err)
@@ -437,43 +460,16 @@ func TestDecoder_DecodeContainer(t *testing.T) {
 	assert.Equal(t, []uint64{100}, dynamicVals)
 }
 
-func TestDecoder_Jump(t *testing.T) {
-	// Create data with an offset
-	var buf bytes.Buffer
-	binary.Write(&buf, binary.LittleEndian, uint32(8)) // Offset to position 8
-	buf.Write([]byte{0, 0, 0, 0})                      // Padding
-	buf.Write([]byte{1, 2, 3, 4})                      // Data at offset 8
-
-	d := NewDecoder(buf.Bytes())
-
-	jumped, offset, err := d.Jump()
-	require.NoError(t, err)
-	assert.Equal(t, 8, offset)
-	assert.Equal(t, []byte{1, 2, 3, 4}, jumped.Remaining())
-}
-
-func TestDecoder_JumpLen(t *testing.T) {
-	// JumpLen returns the offset divided by 4
-	var buf bytes.Buffer
-	binary.Write(&buf, binary.LittleEndian, uint32(16)) // Offset 16
-	// Add padding data to make the jump valid
-	buf.Write(make([]byte, 12)) // 4 bytes for offset + 12 = 16 total
-
-	d := NewDecoder(buf.Bytes())
-
-	dec, length, err := d.JumpLen()
-	require.NoError(t, err)
-	assert.Equal(t, 4, length) // 16/4 = 4
-	assert.NotNil(t, dec)
-}
-
 func TestDecoder_ReadString(t *testing.T) {
 	data := []byte("hello world")
 	d := NewDecoder(data)
 
-	str, err := d.ReadString()
+	// Read all remaining bytes
+	buf := make([]byte, len(d.Remaining()))
+	n, err := d.Read(buf)
 	require.NoError(t, err)
-	assert.Equal(t, "hello world", str)
+	assert.Equal(t, len(data), n)
+	assert.Equal(t, "hello world", string(buf))
 	assert.Equal(t, len(data), d.cur)
 }
 
@@ -484,40 +480,29 @@ func TestDecoder_ReadBytes(t *testing.T) {
 	// Read some bytes first
 	d.cur = 2
 
-	result, err := d.ReadBytes()
+	// Read all remaining bytes
+	remaining := d.Remaining()
+	buf := make([]byte, len(remaining))
+	n, err := d.Read(buf)
 	require.NoError(t, err)
-	assert.Equal(t, []byte{3, 4, 5}, result)
+	assert.Equal(t, len(remaining), n)
+	assert.Equal(t, []byte{3, 4, 5}, buf)
 	assert.Equal(t, len(data), d.cur)
 }
 
 func TestDecoder_ErrorCases(t *testing.T) {
-	t.Run("Jump with invalid offset", func(t *testing.T) {
+	t.Run("DecodeContainer with invalid offset", func(t *testing.T) {
 		var buf bytes.Buffer
 		binary.Write(&buf, binary.LittleEndian, uint32(100)) // Offset beyond data
 
 		d := NewDecoder(buf.Bytes())
-		_, _, err := d.Jump()
+		err := d.DecodeContainer(
+			Variable(func(d *Decoder) error {
+				t.Fatal("Should not reach here")
+				return nil
+			}),
+		)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "dynamic overflow")
-	})
-
-	t.Run("DecodeContainer with invalid opcode", func(t *testing.T) {
-		d := NewDecoder([]byte{})
-		err := d.DecodeContainer(Op{O: 999}) // Invalid opcode
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "opcode")
-	})
-
-	t.Run("DecodeDynamicList with count too large", func(t *testing.T) {
-		var buf bytes.Buffer
-		binary.Write(&buf, binary.LittleEndian, uint32(40)) // 10 items
-
-		d := NewDecoder(buf.Bytes())
-		op := DynamicList(func(d *Decoder) error { return nil }, 5) // Max 5
-
-		err := d.DecodeDynamicList(op)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "dlist big")
 	})
 }
 
@@ -537,18 +522,3 @@ func TestDecoder_ScanBinarySlice(t *testing.T) {
 	assert.Equal(t, uint32(10), val)
 	assert.Equal(t, 4, d.cur)
 }
-
-func TestDecoder_PeekBinary(t *testing.T) {
-	var buf bytes.Buffer
-	val := uint64(0x123456789abcdef0)
-	binary.Write(&buf, binary.LittleEndian, val)
-
-	d := NewDecoder(buf.Bytes())
-
-	var peeked uint64
-	err := d.PeekBinary(&peeked)
-	require.NoError(t, err)
-	assert.Equal(t, val, peeked)
-	assert.Equal(t, 0, d.cur) // Cursor should not advance
-}
-

@@ -15,8 +15,7 @@ func TestUint256Pointer(t *testing.T) {
 		}
 		
 		// Test validation
-		err := PrecacheStructSSZInfo(WithPointer{})
-		require.NoError(t, err)
+		MustPrecacheStructSSZInfo(WithPointer{})
 		
 		// Test encoding
 		val := uint256.NewInt(0x123456789ABCDEF0)
@@ -47,8 +46,7 @@ func TestUint256Pointer(t *testing.T) {
 		}
 		
 		// Test validation
-		err := PrecacheStructSSZInfo(WithPointer{})
-		require.NoError(t, err)
+		MustPrecacheStructSSZInfo(WithPointer{})
 		
 		// Test encoding
 		val := uint256.NewInt(0x123456789ABCDEF0)
@@ -95,8 +93,7 @@ func TestUint256Pointer(t *testing.T) {
 		}
 		
 		// Test validation
-		err := PrecacheStructSSZInfo(Mixed{})
-		require.NoError(t, err)
+		MustPrecacheStructSSZInfo(Mixed{})
 		
 		// Test encoding
 		val1 := uint256.NewInt(100)
@@ -122,8 +119,7 @@ func TestUint256Pointer(t *testing.T) {
 		}
 		
 		// Test validation
-		err := PrecacheStructSSZInfo(WithMultiplePointers{})
-		require.NoError(t, err)
+		MustPrecacheStructSSZInfo(WithMultiplePointers{})
 		
 		// Test encoding
 		val1 := uint256.NewInt(100)

@@ -33,8 +33,7 @@ func TestVectorListTypes(t *testing.T) {
 		}
 		
 		// Validate struct
-		err := PrecacheStructSSZInfo(TestStruct{})
-		require.NoError(t, err)
+		MustPrecacheStructSSZInfo(TestStruct{})
 		
 		// Create and encode
 		s := TestStruct{
@@ -83,14 +82,13 @@ func TestVectorListTypes(t *testing.T) {
 		type ValidVector struct {
 			Data [10]uint32 `ssz:"vector"`
 		}
-		err := PrecacheStructSSZInfo(ValidVector{})
-		require.NoError(t, err)
+		MustPrecacheStructSSZInfo(ValidVector{})
 		
 		// Invalid: vector on slice
 		type InvalidVector struct {
 			Data []uint32 `ssz:"vector"`
 		}
-		err = PrecacheStructSSZInfo(InvalidVector{})
+		err := PrecacheStructSSZInfo(InvalidVector{})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "ssz tag 'vector' requires array type")
 	})
@@ -100,14 +98,13 @@ func TestVectorListTypes(t *testing.T) {
 		type ValidList struct {
 			Data []uint32 `ssz:"list" ssz-max:"100"`
 		}
-		err := PrecacheStructSSZInfo(ValidList{})
-		require.NoError(t, err)
+		MustPrecacheStructSSZInfo(ValidList{})
 		
 		// Invalid: list on array
 		type InvalidList struct {
 			Data [10]uint32 `ssz:"list"`
 		}
-		err = PrecacheStructSSZInfo(InvalidList{})
+		err := PrecacheStructSSZInfo(InvalidList{})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "ssz tag 'list' requires slice type")
 		
@@ -115,9 +112,9 @@ func TestVectorListTypes(t *testing.T) {
 		type ListNoLimit struct {
 			Data []uint32 `ssz:"list"`
 		}
-		err = PrecacheStructSSZInfo(ListNoLimit{})
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "slice types must have either ssz-size or ssz-max tag")
+		err2 := PrecacheStructSSZInfo(ListNoLimit{})
+		require.Error(t, err2)
+		assert.Contains(t, err2.Error(), "slice types must have either ssz-size or ssz-max tag")
 	})
 	
 	t.Run("auto-detection", func(t *testing.T) {
@@ -131,7 +128,6 @@ func TestVectorListTypes(t *testing.T) {
 			Data2 []byte   `ssz:"list" ssz-max:"100"` // Explicit is also fine
 		}
 		
-		err := PrecacheStructSSZInfo(AutoDetect{})
-		require.NoError(t, err)
+		MustPrecacheStructSSZInfo(AutoDetect{})
 	})
 }

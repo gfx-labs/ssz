@@ -15,8 +15,7 @@ func TestFastSSZTags(t *testing.T) {
 		}
 		
 		// Validate struct
-		err := PrecacheStructSSZInfo(Test{})
-		require.NoError(t, err)
+		MustPrecacheStructSSZInfo(Test{})
 		
 		// Encode
 		original := Test{
@@ -43,8 +42,7 @@ func TestFastSSZTags(t *testing.T) {
 		}
 		
 		// Validate struct
-		err := PrecacheStructSSZInfo(Test{})
-		require.NoError(t, err)
+		MustPrecacheStructSSZInfo(Test{})
 		
 		// Encode
 		original := Test{
@@ -67,8 +65,7 @@ func TestFastSSZTags(t *testing.T) {
 		}
 		
 		// Validate struct
-		err := PrecacheStructSSZInfo(Test{})
-		require.NoError(t, err)
+		MustPrecacheStructSSZInfo(Test{})
 		
 		// Encode
 		original := Test{
@@ -98,8 +95,7 @@ func TestFastSSZTags(t *testing.T) {
 		}
 		
 		// For now, we treat ? as no limit (0)
-		err := PrecacheStructSSZInfo(Test{})
-		require.NoError(t, err)
+		MustPrecacheStructSSZInfo(Test{})
 	})
 	
 	t.Run("complex beacon state example", func(t *testing.T) {
@@ -135,8 +131,7 @@ func TestFastSSZTags(t *testing.T) {
 		}
 		
 		// Validate struct
-		err := PrecacheStructSSZInfo(BeaconState{})
-		require.NoError(t, err)
+		MustPrecacheStructSSZInfo(BeaconState{})
 		
 		// Create test data
 		original := BeaconState{

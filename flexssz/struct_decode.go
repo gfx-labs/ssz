@@ -31,25 +31,21 @@ func DecodeStruct(data []byte, v any) error {
 func decodeStructFromDecoder(d *Decoder, v reflect.Value) error {
 	rt := v.Type()
 	
-	// Get cached struct info
-	info, err := getStructSSZInfo(rt)
+	// Get type info
+	typeInfo, err := GetTypeInfo(rt, nil)
 	if err != nil {
-		return fmt.Errorf("error getting struct info: %w", err)
+		return fmt.Errorf("error getting type info: %w", err)
 	}
 	
 	// Calculate fixed part size and find variable fields
 	fixedSize := 0
 	var variableFields []int
-	for i, fieldInfo := range info.Fields {
-		if fieldInfo.IsVariable {
+	for i, field := range typeInfo.Fields {
+		if field.Type.IsVariable {
 			fixedSize += 4 // Offset size
 			variableFields = append(variableFields, i)
 		} else {
-			size, err := getFixedSize(fieldInfo.Type, fieldInfo.Tag)
-			if err != nil {
-				return fmt.Errorf("error getting fixed size for field %s: %w", fieldInfo.Name, err)
-			}
-			fixedSize += size
+			fixedSize += field.Type.FixedSize
 		}
 	}
 	
@@ -62,14 +58,14 @@ func decodeStructFromDecoder(d *Decoder, v reflect.Value) error {
 	
 	// Decode fields
 	variableIndex := 0
-	for i, fieldInfo := range info.Fields {
-		fieldValue := v.Field(fieldInfo.Index)
+	for i, field := range typeInfo.Fields {
+		fieldValue := v.Field(field.Index)
 		
-		if fieldInfo.IsVariable {
+		if field.Type.IsVariable {
 			// Read offset
 			offset, err := fixedDecoder.ReadUint32()
 			if err != nil {
-				return fmt.Errorf("error reading offset for field %s: %w", fieldInfo.Name, err)
+				return fmt.Errorf("error reading offset for field %s: %w", field.Name, err)
 			}
 			
 			// Calculate size
@@ -83,12 +79,8 @@ func decodeStructFromDecoder(d *Decoder, v reflect.Value) error {
 				// Skip to the next variable field's offset position
 				skipBytes := 0
 				for j := i + 1; j < nextFieldIndex; j++ {
-					if !info.Fields[j].IsVariable {
-						fieldSize, err := getFixedSize(info.Fields[j].Type, info.Fields[j].Tag)
-						if err != nil {
-							return fmt.Errorf("error getting size for field %s: %w", info.Fields[j].Name, err)
-						}
-						skipBytes += fieldSize
+					if !typeInfo.Fields[j].Type.IsVariable {
+						skipBytes += typeInfo.Fields[j].Type.FixedSize
 					}
 				}
 				
@@ -118,7 +110,7 @@ func decodeStructFromDecoder(d *Decoder, v reflect.Value) error {
 			if size > 0 {
 				varData, err = d.ReadN(size)
 				if err != nil {
-					return fmt.Errorf("error reading variable data for field %s: %w", fieldInfo.Name, err)
+					return fmt.Errorf("error reading variable data for field %s: %w", field.Name, err)
 				}
 			} else {
 				// Empty variable field
@@ -127,17 +119,17 @@ func decodeStructFromDecoder(d *Decoder, v reflect.Value) error {
 			
 			// Decode variable field
 			varDecoder := NewDecoder(varData)
-			err = decodeVariableField(varDecoder, fieldValue, fieldInfo.Tag)
+			err = decodeVariableField(varDecoder, fieldValue, field.Type.Tag)
 			if err != nil {
-				return fmt.Errorf("error decoding variable field %s: %w", fieldInfo.Name, err)
+				return fmt.Errorf("error decoding variable field %s: %w", field.Name, err)
 			}
 			
 			variableIndex++
 		} else {
 			// Decode fixed field directly from fixed decoder
-			err := decodeFixedField(fixedDecoder, fieldValue, fieldInfo.Tag)
+			err := decodeFixedField(fixedDecoder, fieldValue, field.Type.Tag)
 			if err != nil {
-				return fmt.Errorf("error decoding field %s: %w", fieldInfo.Name, err)
+				return fmt.Errorf("error decoding field %s: %w", field.Name, err)
 			}
 		}
 	}
@@ -323,15 +315,16 @@ func decodeFixedField(d *Decoder, v reflect.Value, tag *sszTag) error {
 func decodeVariableField(d *Decoder, v reflect.Value, tag *sszTag) error {
 	switch v.Kind() {
 	case reflect.String:
-		str, err := d.ReadString()
+		// Read all remaining bytes and convert to string
+		buf, err := d.ReadAll()
 		if err != nil {
 			return err
 		}
-		v.SetString(str)
+		v.SetString(string(buf))
 	case reflect.Slice:
 		if v.Type().Elem().Kind() == reflect.Uint8 {
-			// Byte slice
-			bytes, err := d.ReadBytes()
+			// Byte slice - read all remaining bytes
+			bytes, err := d.ReadAll()
 			if err != nil {
 				return err
 			}
@@ -548,24 +541,15 @@ func getFixedSize(t reflect.Type, tag *sszTag) (int, error) {
 		return getFixedSize(t.Elem(), tag)
 	case reflect.Struct:
 		// For structs, we need to calculate the total fixed size
-		info, err := getStructSSZInfo(t)
+		typeInfo, err := GetTypeInfo(t, tag)
 		if err != nil {
 			return 0, err
 		}
 		
-		size := 0
-		for _, fieldInfo := range info.Fields {
-			if fieldInfo.IsVariable {
-				size += 4 // Offset size
-			} else {
-				fieldSize, err := getFixedSize(fieldInfo.Type, fieldInfo.Tag)
-				if err != nil {
-					return 0, err
-				}
-				size += fieldSize
-			}
+		if typeInfo.IsVariable {
+			return -1, nil
 		}
-		return size, nil
+		return typeInfo.FixedSize, nil
 	default:
 		return 0, fmt.Errorf("cannot get fixed size for type %v", t)
 	}

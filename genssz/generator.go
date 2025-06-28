@@ -264,7 +264,7 @@ func generateMethods(f *jen.File, structDef ssz.Field, schema *Schema) error {
 		jen.If(jen.Len(jen.Id("s")).Op("!=").Id("s").Dot("SizeSSZ").Call()).Block(
 			jen.Return(
 				jen.Nil(), 
-				jen.Qual("github.com/gfx-labs/ssz", "NewSizeMismatchError").Call(
+				jen.Qual("github.com/gfx-labs/ssz", "NewErrSizeMismatch").Call(
 					jen.Id("s").Dot("SizeSSZ").Call(),
 					jen.Len(jen.Id("s")),
 				),

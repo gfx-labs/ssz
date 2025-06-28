@@ -19,8 +19,7 @@ func TestContainerTag(t *testing.T) {
 			Count uint16 `ssz:"uint16"`
 		}
 		
-		err := PrecacheStructSSZInfo(Outer{})
-		require.NoError(t, err)
+		MustPrecacheStructSSZInfo(Outer{})
 		
 		// Test encoding
 		s := Outer{
@@ -71,8 +70,7 @@ func TestContainerTag(t *testing.T) {
 			After  uint16
 		}
 		
-		err := PrecacheStructSSZInfo(Outer{})
-		require.NoError(t, err)
+		MustPrecacheStructSSZInfo(Outer{})
 		
 		// Test encoding
 		s := Outer{
@@ -98,8 +96,7 @@ func TestContainerTag(t *testing.T) {
 			End      uint16        `ssz:"uint16"`
 		}
 		
-		err := PrecacheStructSSZInfo(OuterVariable{})
-		require.NoError(t, err)
+		MustPrecacheStructSSZInfo(OuterVariable{})
 		
 		// Test encoding
 		s := OuterVariable{

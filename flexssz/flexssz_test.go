@@ -31,23 +31,30 @@ func TestDecodeEncoder(t *testing.T) {
 	var s S
 	ans := buf.Bytes()
 	p := NewDecoder(ans)
-	err := p.DecodeContainer([]Op{
+	
+	// Decode using DecodeContainer
+	err := p.DecodeContainer(
 		Fixed(func(d *Decoder) error {
 			return d.ScanUint64(&s.v)
 		}),
-		FixedList(func(d *Decoder) (err error) {
-			s.s, err = d.ReadString()
-			return
-		}, 1, 32),
-		FixedList(func(d *Decoder) error {
-			i, err := d.ReadUint64()
-			if err != nil {
-				return err
+		Variable(func(d *Decoder) error {
+			buf, err := d.ReadAll()
+			if err == nil {
+				s.s = string(buf)
 			}
-			s.xs = append(s.xs, i)
+			return err
+		}),
+		Variable(func(d *Decoder) error {
+			for d.cur < len(d.xs) {
+				i, err := d.ReadUint64()
+				if err != nil {
+					break
+				}
+				s.xs = append(s.xs, i)
+			}
 			return nil
-		}, 8, 32),
-	}...)
+		}),
+	)
 	require.NoError(t, err)
 }
 
@@ -85,26 +92,55 @@ func TestDecodeEncoder2(t *testing.T) {
 	var s S
 	ans := buf.Bytes()
 	p := NewDecoder(ans)
-	err := p.DecodeContainer([]Op{
+	
+	// Decode using DecodeContainer
+	err := p.DecodeContainer(
 		Fixed(func(d *Decoder) error {
 			return d.ScanUint64(&s.v)
 		}),
-		DynamicList(func(d *Decoder) error {
-			xs := []uint64{}
-			err := d.DecodeFixedList(FixedList(func(d *Decoder) error {
-				i, err := d.ReadUint64()
-				if err != nil {
-					return err
-				}
-				xs = append(xs, i)
-				return nil
-			}, 8, 32))
+		Variable(func(d *Decoder) error {
+			// Read first offset to get count
+			firstOffset, err := d.PeekUint32()
 			if err != nil {
 				return err
 			}
-			s.xs = append(s.xs, xs)
+			count := firstOffset / 4
+			
+			// Read all offsets
+			offsets := make([]int, count)
+			for i := 0; i < int(count); i++ {
+				off, err := d.ReadOffset()
+				if err != nil {
+					return err
+				}
+				offsets[i] = off
+			}
+			
+			// Decode each sublist
+			for i, off := range offsets {
+				var endOff int
+				if i+1 < len(offsets) {
+					endOff = offsets[i+1]
+				} else {
+					endOff = d.Len()
+				}
+				
+				// Create decoder for this sublist
+				subDecoder := NewDecoder(d.xs[off:endOff])
+				
+				// Read the fixed list of uint64s
+				xs := []uint64{}
+				for subDecoder.cur < len(subDecoder.xs) {
+					val, err := subDecoder.ReadUint64()
+					if err != nil {
+						break
+					}
+					xs = append(xs, val)
+				}
+				s.xs = append(s.xs, xs)
+			}
 			return nil
-		}, 32),
-	}...)
+		}),
+	)
 	require.NoError(t, err)
 }

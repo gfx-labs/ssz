@@ -28,6 +28,37 @@ const (
 	TypeRef TypeName = "ref"
 )
 
+func (t TypeName) String() string {
+	return string(t)
+}
+
+func (t TypeName) IsSometimesVariable() bool {
+	switch t {
+	case TypeVector, TypeContainer, TypeUnion, TypeRef:
+		return true
+	default:
+		return false
+	}
+}
+
+func (t TypeName) IsAlwaysVariable() bool {
+	switch t {
+	case TypeList, TypeBitList:
+		return true
+	default:
+		return false
+	}
+}
+
+func (t TypeName) IsAlwaysFixed() bool {
+	switch t {
+	case TypeUint8, TypeUint16, TypeUint32, TypeUint64, TypeUint128, TypeUint256, TypeBoolean, TypeBitVector:
+		return true
+	default:
+		return false
+	}
+}
+
 type Field struct {
 	Name string   `json:"name"`
 	Type TypeName `json:"type"`
@@ -99,7 +130,6 @@ func isValid(f *Field, refs map[string]Field, iterations, maxIterations int) err
 	case TypeUint8, TypeUint16, TypeUint32, TypeUint64, TypeUint128, TypeUint256, TypeBoolean:
 		// Basic types are always valid
 		return nil
-
 
 	case TypeVector, TypeBitVector:
 		// Fixed-size types must have Size specified

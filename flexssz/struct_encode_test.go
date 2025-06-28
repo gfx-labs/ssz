@@ -33,34 +33,42 @@ func TestEncodeStruct_VariableFields(t *testing.T) {
 
 	var decoded VariableStruct
 
-	// Decode using container operations
+	// Decode using DecodeContainer
 	err = d.DecodeContainer(
+		// Fixed uint32
 		Fixed(func(d *Decoder) error {
 			return d.ScanUint32(&decoded.Fixed)
 		}),
-		FixedList(func(d *Decoder) error {
-			var err error
-			decoded.Name, err = d.ReadString()
-			return err
-		}, 1, 100),
-		FixedList(func(d *Decoder) error {
-			var err error
-			decoded.Data, err = d.ReadBytes()
-			return err
-		}, 1, 100),
-		FixedList(func(d *Decoder) error {
-			val, err := d.ReadUint64()
-			if err != nil {
-				return err
+		// Variable string (Name)
+		Variable(func(d *Decoder) error {
+			buf, err := d.ReadAll()
+			if err == nil {
+				decoded.Name = string(buf)
 			}
-			decoded.Numbers = append(decoded.Numbers, val)
+			return err
+		}),
+		// Variable bytes (Data)
+		Variable(func(d *Decoder) error {
+			var err error
+			decoded.Data, err = d.ReadAll()
+			return err
+		}),
+		// Variable list of uint64s (Numbers)
+		Variable(func(d *Decoder) error {
+			for d.cur < len(d.xs) {
+				val, err := d.ReadUint64()
+				if err != nil {
+					break
+				}
+				decoded.Numbers = append(decoded.Numbers, val)
+			}
 			return nil
-		}, 8, 10),
+		}),
+		// Fixed uint16
 		Fixed(func(d *Decoder) error {
 			return d.ScanUint16(&decoded.Fixed2)
 		}),
 	)
-
 	require.NoError(t, err)
 	assert.Equal(t, s.Fixed, decoded.Fixed)
 	assert.Equal(t, s.Name, decoded.Name)
@@ -245,19 +253,17 @@ func TestPrecacheStructSSZInfo(t *testing.T) {
 	}
 
 	// Test successful precaching
-	err := PrecacheStructSSZInfo(ValidStruct{})
-	require.NoError(t, err)
+	MustPrecacheStructSSZInfo(ValidStruct{})
 
 	// Test with pointer
-	err = PrecacheStructSSZInfo(&ValidStruct{})
-	require.NoError(t, err)
+	MustPrecacheStructSSZInfo(&ValidStruct{})
 
 	// Test with invalid struct
 	type InvalidStruct struct {
 		A uint32 `ssz:"uint64"` // Type mismatch
 	}
 
-	err = PrecacheStructSSZInfo(InvalidStruct{})
+	err := PrecacheStructSSZInfo(InvalidStruct{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "ssz tag 'uint64' requires Go type uint64")
 }
@@ -269,8 +275,7 @@ func TestLimitTag(t *testing.T) {
 			Data    []byte   `ssz:"list" ssz-max:"1024"`
 		}
 
-		err := PrecacheStructSSZInfo(ValidSliceStruct{})
-		require.NoError(t, err)
+		MustPrecacheStructSSZInfo(ValidSliceStruct{})
 	})
 
 	t.Run("slice without limit", func(t *testing.T) {
@@ -313,20 +318,23 @@ func TestLimitTag(t *testing.T) {
 		var count uint32
 		var values []uint64
 
+		// Read fixed count
+		err = d.ScanUint32(&count)
+		require.NoError(t, err)
+		
+		// Read values using DecodeContainer
 		err = d.DecodeContainer(
-			Fixed(func(d *Decoder) error {
-				return d.ScanUint32(&count)
-			}),
-			FixedList(func(d *Decoder) error {
-				val, err := d.ReadUint64()
-				if err != nil {
-					return err
+			Variable(func(d *Decoder) error {
+				for d.cur < len(d.xs) {
+					val, err := d.ReadUint64()
+					if err != nil {
+						break
+					}
+					values = append(values, val)
 				}
-				values = append(values, val)
 				return nil
-			}, 8, 10), // Using the limit from the tag
+			}),
 		)
-
 		require.NoError(t, err)
 		assert.Equal(t, s.Count, count)
 		assert.Equal(t, s.Values, values)
@@ -363,8 +371,7 @@ func TestAllSlicesMustHaveLimit(t *testing.T) {
 			Data []byte `ssz:"list" ssz-max:"1024"`
 		}
 		
-		err := PrecacheStructSSZInfo(ValidStruct{})
-		require.NoError(t, err)
+		MustPrecacheStructSSZInfo(ValidStruct{})
 	})
 	
 	t.Run("various slice types without limit", func(t *testing.T) {
@@ -426,8 +433,7 @@ func TestAllSlicesMustHaveLimit(t *testing.T) {
 			} `ssz-max:"10"`
 		}
 		
-		err := PrecacheStructSSZInfo(ValidStruct{})
-		require.NoError(t, err)
+		MustPrecacheStructSSZInfo(ValidStruct{})
 	})
 	
 	t.Run("encode byte slice with limit", func(t *testing.T) {
@@ -450,17 +456,18 @@ func TestAllSlicesMustHaveLimit(t *testing.T) {
 		var header uint32
 		var data []byte
 		
-		err = d.DecodeContainer(
-			Fixed(func(d *Decoder) error {
-				return d.ScanUint32(&header)
-			}),
-			FixedList(func(d *Decoder) error {
-				var err error
-				data, err = d.ReadBytes()
-				return err
-			}, 1, 100),
-		)
+		// Read fixed header
+		err = d.ScanUint32(&header)
+		require.NoError(t, err)
 		
+		// Read data bytes using DecodeContainer
+		err = d.DecodeContainer(
+			Variable(func(d *Decoder) error {
+				var err error
+				data, err = d.ReadAll()
+				return err
+			}),
+		)
 		require.NoError(t, err)
 		assert.Equal(t, s.Header, header)
 		assert.Equal(t, s.Data, data)
