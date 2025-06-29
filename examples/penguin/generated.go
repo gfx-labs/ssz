@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/gfx-labs/ssz"
 	"github.com/gfx-labs/ssz/merkle_tree"
+	"github.com/gfx-labs/ssz/merkle_tree/bufpool"
 )
 
 // Penguin is a fixed-size SSZ container with the following byte layout:
@@ -108,9 +109,11 @@ func (s Penguin) HashSSZTo(buf []byte) ([]byte, error) {
 	if len(buf) < 32 {
 		return nil, fmt.Errorf("buffer too small: need at least 32 bytes, got %d", len(buf))
 	}
-	// Allocate hash buffer for all fields
+	// Get hash buffer from pool
 	numFields := 5
-	hashBuffer := make([]byte, numFields*32)
+	poolBuf := bufpool.Get(numFields * 32)
+	defer bufpool.Put(poolBuf)
+	hashBuffer := poolBuf.B[:numFields*32]
 	// Fill the hash buffer with field hashes
 	if err := s.FillHashBuffer(hashBuffer); err != nil {
 		return nil, err
@@ -266,9 +269,11 @@ func (s Identity) HashSSZTo(buf []byte) ([]byte, error) {
 	if len(buf) < 32 {
 		return nil, fmt.Errorf("buffer too small: need at least 32 bytes, got %d", len(buf))
 	}
-	// Allocate hash buffer for all fields
+	// Get hash buffer from pool
 	numFields := 2
-	hashBuffer := make([]byte, numFields*32)
+	poolBuf := bufpool.Get(numFields * 32)
+	defer bufpool.Put(poolBuf)
+	hashBuffer := poolBuf.B[:numFields*32]
 	// Fill the hash buffer with field hashes
 	if err := s.FillHashBuffer(hashBuffer); err != nil {
 		return nil, err

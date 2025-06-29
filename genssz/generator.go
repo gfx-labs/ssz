@@ -19,6 +19,7 @@ func GenerateCode(world *World, schema *Schema) (*jen.File, error) {
 	f.ImportName("github.com/gfx-labs/ssz", "ssz")
 	f.ImportName("encoding/binary", "binary")
 	f.ImportName("github.com/gfx-labs/ssz/merkle_tree", "merkle_tree")
+	f.ImportName("github.com/gfx-labs/ssz/merkle_tree/bufpool", "bufpool")
 	f.ImportName("fmt", "fmt")
 	
 	// Generate code for each type in the world
@@ -112,7 +113,7 @@ func getTypeDescription(field ssz.Field) string {
 		return "uint128"
 	case ssz.TypeUint256:
 		return "uint256"
-	case ssz.TypeBool:
+	case ssz.TypeBoolean:
 		return "bool"
 	case ssz.TypeBitVector:
 		return fmt.Sprintf("bitvector[%d]", field.Size)
@@ -286,9 +287,11 @@ func generateMethods(f *jen.File, structDef ssz.Field, schema *Schema) error {
 		jen.If(jen.Len(jen.Id("buf")).Op("<").Lit(32)).Block(
 			jen.Return(jen.Nil(), jen.Qual("fmt", "Errorf").Call(jen.Lit("buffer too small: need at least 32 bytes, got %d"), jen.Len(jen.Id("buf")))),
 		),
-		jen.Comment("Allocate hash buffer for all fields"),
+		jen.Comment("Get hash buffer from pool"),
 		jen.Id("numFields").Op(":=").Lit(len(structDef.Children)),
-		jen.Id("hashBuffer").Op(":=").Make(jen.Op("[]").Byte(), jen.Id("numFields").Op("*").Lit(32)),
+		jen.Id("poolBuf").Op(":=").Qual("github.com/gfx-labs/ssz/merkle_tree/bufpool", "Get").Call(jen.Id("numFields").Op("*").Lit(32)),
+		jen.Defer().Qual("github.com/gfx-labs/ssz/merkle_tree/bufpool", "Put").Call(jen.Id("poolBuf")),
+		jen.Id("hashBuffer").Op(":=").Id("poolBuf").Dot("B").Op("[:").Id("numFields").Op("*").Lit(32).Op("]"),
 		jen.Comment("Fill the hash buffer with field hashes"),
 		jen.If(jen.Err().Op(":=").Id("s").Dot("FillHashBuffer").Call(jen.Id("hashBuffer")), jen.Err().Op("!=").Nil()).Block(
 			jen.Return(jen.Nil(), jen.Err()),
@@ -355,7 +358,7 @@ func calculateOffsets(structDef ssz.Field, schema *Schema) ([]int, int, error) {
 // getFieldSize returns the size in bytes of a field
 func getFieldSize(field ssz.Field, refs map[string]ssz.Field) (int, error) {
 	switch field.Type {
-	case ssz.TypeUint8, ssz.TypeBool:
+	case ssz.TypeUint8, ssz.TypeBoolean:
 		return 1, nil
 	case ssz.TypeUint16:
 		return 2, nil
@@ -667,7 +670,7 @@ func generateFieldHashing(structDef ssz.Field, offsets []int, refs map[string]ss
 				jen.Copy(jen.Id("buf").Index(jen.Lit(bufOffset), jen.Lit(bufOffset+size)), jen.Id("s").Index(jen.Lit(fieldOffset), jen.Lit(fieldOffset+size))),
 			)
 			
-		case ssz.TypeBool:
+		case ssz.TypeBoolean:
 			// For booleans, copy single byte with padding
 			statements = append(statements,
 				jen.Comment(fmt.Sprintf("Field %s (bool)", field.Name)),
@@ -751,10 +754,16 @@ func generateFieldHashing(structDef ssz.Field, offsets []int, refs map[string]ss
 						)
 					}
 				} else {
-					// For larger sizes, we need to hash in chunks
+					// For larger byte vectors, compute hash
 					statements = append(statements,
-						jen.Comment("TODO: implement chunked hashing for large bytevectors"),
-						jen.Return(jen.Qual("fmt", "Errorf").Call(jen.Lit(fmt.Sprintf("bytevector size %d > 32 not yet supported", size)))),
+						jen.Block(
+							jen.Id("fieldData").Op(":=").Id("s").Index(jen.Lit(fieldOffset), jen.Lit(fieldOffset+size)),
+							jen.Id("root").Op(",").Err().Op(":=").Qual("github.com/gfx-labs/ssz/merkle_tree", "BytesRoot").Call(jen.Id("fieldData")),
+							jen.If(jen.Err().Op("!=").Nil()).Block(
+								jen.Return(jen.Err()),
+							),
+							jen.Copy(jen.Id("buf").Index(jen.Lit(bufOffset), jen.Lit(bufOffset+32)), jen.Id("root").Op("[:]")),
+						),
 					)
 				}
 			} else {
