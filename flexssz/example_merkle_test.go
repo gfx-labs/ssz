@@ -22,7 +22,7 @@ func TestGenesisHashTreeRoot(t *testing.T) {
 			GenesisForkVersion:    [4]byte{0x00, 0x00, 0x00, 0x00},
 		}
 
-		root, err := HashTreeRootStruct(genesis)
+		root, err := HashTreeRoot(genesis)
 		if err != nil {
 			t.Fatalf("Failed to calculate hash tree root: %v", err)
 		}
@@ -48,7 +48,7 @@ func TestGenesisHashTreeRoot(t *testing.T) {
 			GenesisForkVersion:    [4]byte{0x00, 0x00, 0x00, 0x00},
 		}
 
-		root, err := HashTreeRootStruct(genesis)
+		root, err := HashTreeRoot(genesis)
 		if err != nil {
 			t.Fatalf("Failed to calculate hash tree root: %v", err)
 		}

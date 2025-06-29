@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestEncodeStruct_VariableFields(t *testing.T) {
+func TestMarshal_VariableFields(t *testing.T) {
 	type VariableStruct struct {
 		Fixed   uint32   `ssz:"uint32"`
 		Name    string   `ssz:"string"`
@@ -25,7 +25,7 @@ func TestEncodeStruct_VariableFields(t *testing.T) {
 		Fixed2:  777,
 	}
 
-	encoded, err := EncodeStruct(s)
+	encoded, err := Marshal(s)
 	require.NoError(t, err)
 
 	// Verify by decoding
@@ -77,7 +77,7 @@ func TestEncodeStruct_VariableFields(t *testing.T) {
 	assert.Equal(t, s.Fixed2, decoded.Fixed2)
 }
 
-func TestEncodeStruct_ComplexExample(t *testing.T) {
+func TestMarshal_ComplexExample(t *testing.T) {
 	type Block struct {
 		Slot          uint64   `ssz:"uint64"`
 		ProposerIndex uint64   `ssz:"uint64"`
@@ -119,7 +119,7 @@ func TestEncodeStruct_ComplexExample(t *testing.T) {
 	}
 
 	// Encode
-	encoded, err := EncodeStruct(block)
+	encoded, err := Marshal(block)
 	require.NoError(t, err)
 	assert.NotEmpty(t, encoded)
 
@@ -135,27 +135,34 @@ func TestEncodeStruct_ComplexExample(t *testing.T) {
 	assert.Equal(t, block.ProposerIndex, proposer)
 }
 
-func TestEncodeStruct_Errors(t *testing.T) {
+func TestMarshal_Errors(t *testing.T) {
 	t.Run("nil pointer", func(t *testing.T) {
 		type TestStruct struct {
 			A uint32
 		}
 		var s *TestStruct
-		_, err := EncodeStruct(s)
+		_, err := Marshal(s)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "nil pointer")
 	})
 
 	t.Run("not a struct", func(t *testing.T) {
-		_, err := EncodeStruct(42)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "expected struct")
+		// This test is no longer valid since Marshal now works with any type
+		// Test that basic type marshaling works correctly instead
+		data, err := Marshal(uint32(42))
+		assert.NoError(t, err)
+		assert.Equal(t, 4, len(data)) // uint32 is 4 bytes
+		// Verify little-endian encoding
+		assert.Equal(t, byte(42), data[0])
+		assert.Equal(t, byte(0), data[1])
+		assert.Equal(t, byte(0), data[2])
+		assert.Equal(t, byte(0), data[3])
 	})
 
 }
 
 // TestParseSSZTags is removed since parseSSZTags is now unexported.
-// The functionality is tested indirectly through PrecacheStructSSZInfo and EncodeStruct.
+// The functionality is tested indirectly through PrecacheStructSSZInfo and Marshal.
 
 func TestParseSSZTags_ValidationErrors(t *testing.T) {
 	tests := []struct {
@@ -309,7 +316,7 @@ func TestLimitTag(t *testing.T) {
 			Values: []uint64{100, 200, 300},
 		}
 
-		encoded, err := EncodeStruct(s)
+		encoded, err := Marshal(s)
 		require.NoError(t, err)
 
 		// Decode and verify
@@ -349,7 +356,7 @@ func TestLimitTag(t *testing.T) {
 			Values: []uint64{1, 2, 3, 4, 5}, // 5 elements but limit is 3
 		}
 
-		_, err := EncodeStruct(s)
+		_, err := Marshal(s)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "slice length 5 exceeds limit 3")
 	})
@@ -447,7 +454,7 @@ func TestAllSlicesMustHaveLimit(t *testing.T) {
 			Data:   []byte{1, 2, 3, 4, 5},
 		}
 		
-		encoded, err := EncodeStruct(s)
+		encoded, err := Marshal(s)
 		require.NoError(t, err)
 		
 		// Decode and verify
@@ -482,7 +489,7 @@ func TestAllSlicesMustHaveLimit(t *testing.T) {
 			Data: []byte{1, 2, 3, 4, 5, 6, 7, 8}, // 8 bytes but limit is 5
 		}
 		
-		_, err := EncodeStruct(s)
+		_, err := Marshal(s)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "slice length 8 exceeds limit 5")
 	})

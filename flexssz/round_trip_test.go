@@ -75,12 +75,12 @@ func TestRoundTrip(t *testing.T) {
 		}
 		
 		// Encode
-		encoded, err := EncodeStruct(original)
+		encoded, err := Marshal(original)
 		require.NoError(t, err)
 		
 		// Decode
 		var decoded AllTypes
-		err = DecodeStruct(encoded, &decoded)
+		err = Unmarshal(encoded, &decoded)
 		require.NoError(t, err)
 		
 		// Compare
@@ -119,12 +119,12 @@ func TestRoundTrip(t *testing.T) {
 		}
 		
 		// Encode
-		encoded, err := EncodeStruct(original)
+		encoded, err := Marshal(original)
 		require.NoError(t, err)
 		
 		// Decode
 		var decoded EmptyValues
-		err = DecodeStruct(encoded, &decoded)
+		err = Unmarshal(encoded, &decoded)
 		require.NoError(t, err)
 		
 		// Compare
@@ -166,12 +166,12 @@ func TestRoundTrip(t *testing.T) {
 		}
 		
 		// Encode
-		encoded, err := EncodeStruct(original)
+		encoded, err := Marshal(original)
 		require.NoError(t, err)
 		
 		// Decode
 		var decoded Level1
-		err = DecodeStruct(encoded, &decoded)
+		err = Unmarshal(encoded, &decoded)
 		require.NoError(t, err)
 		
 		// Compare
@@ -198,12 +198,12 @@ func TestRoundTrip(t *testing.T) {
 		}
 		
 		// Encode
-		encoded, err := EncodeStruct(original)
+		encoded, err := Marshal(original)
 		require.NoError(t, err)
 		
 		// Decode
 		var decoded MaxSizes
-		err = DecodeStruct(encoded, &decoded)
+		err = Unmarshal(encoded, &decoded)
 		require.NoError(t, err)
 		
 		// Compare
@@ -228,12 +228,12 @@ func TestRoundTrip(t *testing.T) {
 		}
 		
 		// Encode
-		encoded, err := EncodeStruct(original)
+		encoded, err := Marshal(original)
 		require.NoError(t, err)
 		
 		// Decode
 		var decoded WithPointers
-		err = DecodeStruct(encoded, &decoded)
+		err = Unmarshal(encoded, &decoded)
 		require.NoError(t, err)
 		
 		// Compare - pointers should be allocated

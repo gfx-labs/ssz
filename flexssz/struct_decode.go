@@ -3,13 +3,15 @@ package flexssz
 import (
 	"fmt"
 	"reflect"
+	
+	"github.com/gfx-labs/ssz"
 )
 
-// DecodeStruct decodes SSZ bytes into a struct based on struct tags
-func DecodeStruct(data []byte, v any) error {
+// Unmarshal decodes SSZ bytes into a value based on its type and struct tags
+func Unmarshal(data []byte, v any) error {
 	rv := reflect.ValueOf(v)
 
-	// Must be a pointer to a struct
+	// Must be a pointer
 	if rv.Kind() != reflect.Ptr {
 		return fmt.Errorf("v must be a pointer, got %v", rv.Kind())
 	}
@@ -19,13 +21,23 @@ func DecodeStruct(data []byte, v any) error {
 	}
 
 	elem := rv.Elem()
-	if elem.Kind() != reflect.Struct {
-		return fmt.Errorf("v must be a pointer to struct, got pointer to %v", elem.Kind())
-	}
-
 	decoder := NewDecoder(data)
-	return decodeStructFromDecoder(decoder, elem)
+	
+	// Get type info for the target type
+	typeInfo, err := GetTypeInfo(elem.Type(), nil)
+	if err != nil {
+		return fmt.Errorf("error getting type info: %w", err)
+	}
+	
+	// Create a dummy field info for the root value
+	fieldInfo := &FieldInfo{
+		Type: typeInfo,
+		Name: "root",
+	}
+	
+	return decodeValue(decoder, elem, fieldInfo)
 }
+
 
 // decodeStructFromDecoder decodes a struct using the provided decoder
 func decodeStructFromDecoder(dec *Decoder, v reflect.Value) error {
@@ -75,6 +87,11 @@ func decodeStructFromDecoder(dec *Decoder, v reflect.Value) error {
 
 // decodeValue decodes a value based on its type
 func decodeValue(d *Decoder, v reflect.Value, fieldInfo *FieldInfo) error {
+	// Special handling for container types when called directly (not as a field)
+	if fieldInfo.Type.Type == ssz.TypeContainer && fieldInfo.Name == "root" {
+		return decodeStructFromDecoder(d, v)
+	}
+	
 	// Check if value is variable-size
 	if fieldInfo.Type.IsVariable {
 		return decodeVariableField(d, v, fieldInfo)

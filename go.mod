@@ -5,7 +5,9 @@ go 1.24.4
 require (
 	github.com/dave/jennifer v1.7.1
 	github.com/erigontech/erigon v1.9.7-0.20250627051334-b48bd312b712
+	github.com/ferranbt/fastssz v0.1.5-0.20250627104550-fbbe2b7a52e5
 	github.com/holiman/uint256 v1.3.2
+	github.com/pk910/dynamic-ssz v1.0.0
 	github.com/prysmaticlabs/gohashtree v0.0.4-beta
 	github.com/stretchr/testify v1.10.0
 	sigs.k8s.io/yaml v1.5.0
@@ -16,7 +18,6 @@ require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/emicklei/dot v1.6.2 // indirect
 	github.com/erigontech/erigon-lib v0.0.0-00010101000000-000000000000 // indirect
-	github.com/ferranbt/fastssz v0.1.4 // indirect
 	github.com/go-stack/stack v1.8.1 // indirect
 	github.com/golang/snappy v1.0.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.8 // indirect
@@ -24,7 +25,6 @@ require (
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/minio/sha256-simd v1.0.1 // indirect
 	github.com/mitchellh/mapstructure v1.3.2 // indirect
-	github.com/pk910/dynamic-ssz v1.0.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/thomaso-mirodin/intmath v0.0.0-20160323211736-5dc6d854e46e // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect

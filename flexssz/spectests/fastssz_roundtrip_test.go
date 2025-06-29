@@ -160,11 +160,11 @@ func TestFastSSZBeaconStateBellatrixRoundtrip(t *testing.T) {
 		
 		// Also unmarshal with our implementation to compare hashes
 		ourState := &BeaconStateBellatrix{}
-		if err := flexssz.DecodeStruct(originalData, ourState); err != nil {
+		if err := flexssz.Unmarshal(originalData, ourState); err != nil {
 			t.Fatalf("Failed to unmarshal with flexssz: %v", err)
 		}
 		
-		ourHash, err := flexssz.HashTreeRootStruct(ourState)
+		ourHash, err := flexssz.HashTreeRoot(ourState)
 		if err != nil {
 			t.Fatalf("Failed to calculate flexssz hash: %v", err)
 		}

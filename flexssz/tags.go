@@ -27,9 +27,9 @@ type sszTag struct {
 
 // TypeInfo represents SSZ type information for any type (not just structs)
 type TypeInfo struct {
-	Type       ssz.TypeName  // SSZ type name
-	FixedSize  int           // Size in bytes for fixed types, -1 for variable
-	IsVariable bool          // Whether this type is variable-size
+	Type       ssz.TypeName // SSZ type name
+	FixedSize  int          // Size in bytes for fixed types, -1 for variable
+	IsVariable bool         // Whether this type is variable-size
 
 	// For basic types
 	BasicType reflect.Type // The underlying Go type for basic types
@@ -54,7 +54,6 @@ type FieldInfo struct {
 	Offset int       // Offset in fixed part (-1 for variable fields)
 }
 
-
 // typeInfoCache caches parsed type information
 var typeInfoCache = make(map[reflect.Type]*TypeInfo)
 var typeInfoCacheMutex sync.RWMutex
@@ -75,15 +74,21 @@ func parseSSZTags(field reflect.StructField) (*sszTag, error) {
 
 	// Parse ssz-size tag for fixed-size arrays/slices
 	if sizeStr := field.Tag.Get("ssz-size"); sizeStr != "" {
-		// Handle multi-dimensional sizes like "8192,32"
+		// Handle multi-dimensional sizes like "8192,32" or "?,32"
 		parts := strings.Split(sizeStr, ",")
 		sizes := make([]int, len(parts))
 		for i, part := range parts {
-			size, err := strconv.Atoi(strings.TrimSpace(part))
-			if err != nil {
-				return nil, fmt.Errorf("invalid ssz-size value: %v", err)
+			trimmed := strings.TrimSpace(part)
+			if trimmed == "?" {
+				// "?" means variable size, use -1 as a marker
+				sizes[i] = -1
+			} else {
+				size, err := strconv.Atoi(trimmed)
+				if err != nil {
+					return nil, fmt.Errorf("invalid ssz-size value: %v", err)
+				}
+				sizes[i] = size
 			}
-			sizes[i] = size
 		}
 		tag.Size = sizes
 
@@ -120,8 +125,16 @@ func parseSSZTags(field reflect.StructField) (*sszTag, error) {
 	}
 
 	// Validate ssz-size and ssz-max usage
-	if len(tag.Size) > 0 && tag.MaxList > 0 {
-		return nil, fmt.Errorf("field %s: cannot use both ssz-size and ssz-max tags", field.Name)
+	// Allow both tags if ssz-size contains "?" (variable size)
+	hasVariableSize := false
+	for _, size := range tag.Size {
+		if size == -1 {
+			hasVariableSize = true
+			break
+		}
+	}
+	if len(tag.Size) > 0 && tag.MaxList > 0 && !hasVariableSize {
+		return nil, fmt.Errorf("field %s: cannot use both ssz-size and ssz-max tags unless ssz-size contains '?'", field.Name)
 	}
 
 	// Validate ssz-size can only be used with arrays or slices
@@ -325,7 +338,6 @@ func validateFieldType(field reflect.StructField, tag *sszTag) error {
 	return nil
 }
 
-
 // structHasVariableFields checks if a struct type contains any variable-size fields
 func structHasVariableFields(t reflect.Type) bool {
 	if t.Kind() != reflect.Struct {
@@ -394,25 +406,25 @@ func GetTypeInfo(t reflect.Type, tag *sszTag) (*TypeInfo, error) {
 		typeInfoCacheMutex.RLock()
 		info, exists := typeInfoCache[t]
 		typeInfoCacheMutex.RUnlock()
-		
+
 		if exists {
 			return info, nil
 		}
 	}
-	
+
 	// Parse type info
 	info, err := parseTypeInfo(t, tag)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Cache the result only when tag is nil
 	if tag == nil {
 		typeInfoCacheMutex.Lock()
 		typeInfoCache[t] = info
 		typeInfoCacheMutex.Unlock()
 	}
-	
+
 	return info, nil
 }
 
@@ -424,12 +436,12 @@ func calculateIsVariable(info *TypeInfo) {
 		info.IsVariable = false
 		return
 	}
-	
+
 	if info.Type.IsAlwaysVariable() {
 		info.IsVariable = true
 		return
 	}
-	
+
 	// For types that are sometimes variable, we need to check children
 	if info.Type.IsSometimesVariable() {
 		switch info.Type {
@@ -501,7 +513,7 @@ func parseTypeInfo(t reflect.Type, tag *sszTag) (*TypeInfo, error) {
 		info.FixedSize = 1
 
 	case reflect.String:
-		info.Type = ssz.TypeList  // String is represented as a list of bytes in SSZ
+		info.Type = ssz.TypeList // String is represented as a list of bytes in SSZ
 		info.FixedSize = -1
 		// String is like a list of bytes
 		info.ElementType = &TypeInfo{
@@ -552,7 +564,7 @@ func parseTypeInfo(t reflect.Type, tag *sszTag) (*TypeInfo, error) {
 		}
 
 	case reflect.Slice:
-		if tag != nil && len(tag.Size) > 0 {
+		if tag != nil && len(tag.Size) > 0 && tag.Size[0] != -1 {
 			// Fixed-size slice (treated as vector)
 			info.Type = ssz.TypeVector
 			info.Length = tag.Size[0]
@@ -579,6 +591,25 @@ func parseTypeInfo(t reflect.Type, tag *sszTag) (*TypeInfo, error) {
 				// Fixed-size array of variable elements
 				info.FixedSize = info.Length * 4
 			}
+		} else if tag != nil && len(tag.Size) > 0 && tag.Size[0] == -1 {
+			// Variable-size slice with fixed-size elements (ssz-size:"?,32")
+			// This is a list, use ssz-max for the max length
+			info.Type = ssz.TypeList
+			info.FixedSize = -1
+			if tag.MaxList > 0 {
+				info.Length = tag.MaxList // Max length from ssz-max
+			}
+
+			// Get element type info with remaining size dimensions
+			elemTag := &sszTag{}
+			if len(tag.Size) > 1 {
+				elemTag.Size = tag.Size[1:]
+			}
+			elemInfo, err := GetTypeInfo(t.Elem(), elemTag)
+			if err != nil {
+				return nil, err
+			}
+			info.ElementType = elemInfo
 		} else {
 			// Variable-size slice (list)
 			if tag != nil && tag.FieldType == "bitlist" {

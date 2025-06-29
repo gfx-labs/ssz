@@ -40,7 +40,7 @@ func TestBeaconStateBellatrixRoundtrip(t *testing.T) {
 	state := &BeaconStateBellatrix{}
 	
 	// Unmarshal the data using flexssz
-	if err := flexssz.DecodeStruct(originalData, state); err != nil {
+	if err := flexssz.Unmarshal(originalData, state); err != nil {
 		t.Fatalf("Failed to unmarshal SSZ data: %v", err)
 	}
 	
@@ -51,7 +51,7 @@ func TestBeaconStateBellatrixRoundtrip(t *testing.T) {
 	t.Logf("  Number of balances: %d", len(state.Balances))
 	
 	// Marshal the state back to SSZ using flexssz
-	marshaledData, err := flexssz.EncodeStruct(state)
+	marshaledData, err := flexssz.Marshal(state)
 	if err != nil {
 		t.Fatalf("Failed to marshal SSZ data: %v", err)
 	}
@@ -110,7 +110,7 @@ func TestBeaconStateBellatrixRoundtrip(t *testing.T) {
 	// Also test that we can unmarshal the marshaled data successfully
 	t.Run("UnmarshalMarshaled", func(t *testing.T) {
 		state2 := &BeaconStateBellatrix{}
-		if err := flexssz.DecodeStruct(marshaledData, state2); err != nil {
+		if err := flexssz.Unmarshal(marshaledData, state2); err != nil {
 			t.Fatalf("Failed to unmarshal marshaled data: %v", err)
 		}
 		
@@ -126,18 +126,18 @@ func TestBeaconStateBellatrixRoundtrip(t *testing.T) {
 	// Test hash consistency
 	t.Run("HashConsistency", func(t *testing.T) {
 		// Calculate hash of original unmarshaled state
-		hash1, err := flexssz.HashTreeRootStruct(state)
+		hash1, err := flexssz.HashTreeRoot(state)
 		if err != nil {
 			t.Fatalf("Failed to calculate hash of original state: %v", err)
 		}
 		
 		// Unmarshal and hash again
 		state3 := &BeaconStateBellatrix{}
-		if err := flexssz.DecodeStruct(marshaledData, state3); err != nil {
+		if err := flexssz.Unmarshal(marshaledData, state3); err != nil {
 			t.Fatalf("Failed to unmarshal for hash test: %v", err)
 		}
 		
-		hash2, err := flexssz.HashTreeRootStruct(state3)
+		hash2, err := flexssz.HashTreeRoot(state3)
 		if err != nil {
 			t.Fatalf("Failed to calculate hash of remarshaled state: %v", err)
 		}

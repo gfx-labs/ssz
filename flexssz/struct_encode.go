@@ -13,12 +13,12 @@ var (
 	uint256Type = reflect.TypeOf(uint256.Int{})
 )
 
-// EncodeStruct encodes a struct to SSZ bytes based on struct tags
-func EncodeStruct(v any) ([]byte, error) {
+// Marshal encodes a value to SSZ bytes based on its type and struct tags
+func Marshal(v any) ([]byte, error) {
 	buf := new(bytes.Buffer)
 	builder := NewBuilder(buf)
 
-	err := encodeStructToBuilder(builder, v)
+	err := encodeValueToBuilder(builder, v)
 	if err != nil {
 		return nil, err
 	}
@@ -30,6 +30,7 @@ func EncodeStruct(v any) ([]byte, error) {
 
 	return buf.Bytes(), nil
 }
+
 
 // encodeStructToBuilder encodes a struct using the provided builder
 func encodeStructToBuilder(b *Builder, v any) error {
@@ -227,9 +228,29 @@ func encodeVariableField(b *Builder, v reflect.Value, tag *sszTag) error {
 		} else {
 			// Other slices - enter variable context
 			dyn := b.EnterDynamic()
+			
+			// Get element type info to determine if elements are fixed-size
+			elemType := v.Type().Elem()
+			elemTag := &sszTag{}
+			
+			// For lists with ssz-size:"?,32", get the element size from the tag
+			if tag != nil && len(tag.Size) > 1 {
+				elemTag.Size = tag.Size[1:]
+			}
+			
+			elemTypeInfo, err := GetTypeInfo(elemType, elemTag)
+			if err != nil {
+				return fmt.Errorf("error getting element type info: %w", err)
+			}
+			
+			// Encode elements based on whether they're fixed or variable
 			for i := 0; i < v.Len(); i++ {
-				elemTag := &sszTag{} // Elements don't have their own tags
-				err := encodeValue(dyn, v.Index(i), elemTag)
+				var err error
+				if elemTypeInfo.IsVariable {
+					err = encodeValue(dyn, v.Index(i), elemTag)
+				} else {
+					err = encodeFixedField(dyn, v.Index(i), elemTag)
+				}
 				if err != nil {
 					return err
 				}
@@ -265,5 +286,27 @@ func encodeValue(b *Builder, v reflect.Value, tag *sszTag) error {
 		return encodeVariableField(b, v, tag)
 	}
 	return encodeFixedField(b, v, tag)
+}
+
+// encodeValueToBuilder encodes any value using the provided builder
+func encodeValueToBuilder(b *Builder, v any) error {
+	rv := reflect.ValueOf(v)
+
+	// Handle pointers by dereferencing
+	if rv.Kind() == reflect.Ptr {
+		if rv.IsNil() {
+			return fmt.Errorf("cannot encode nil pointer")
+		}
+		rv = rv.Elem()
+	}
+
+	// For structs, use the existing struct encoding logic
+	if rv.Kind() == reflect.Struct {
+		return encodeStructToBuilder(b, rv.Interface())
+	}
+
+	// For other types, use the general encoding logic with an empty tag
+	tag := &sszTag{}
+	return encodeValue(b, rv, tag)
 }
 

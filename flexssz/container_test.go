@@ -28,7 +28,7 @@ func TestContainerTag(t *testing.T) {
 			Count: 999,
 		}
 		
-		encoded, err := EncodeStruct(s)
+		encoded, err := Marshal(s)
 		require.NoError(t, err)
 		assert.NotEmpty(t, encoded)
 		
@@ -79,7 +79,7 @@ func TestContainerTag(t *testing.T) {
 			After:  300,
 		}
 		
-		encoded, err := EncodeStruct(s)
+		encoded, err := Marshal(s)
 		require.NoError(t, err)
 		assert.NotEmpty(t, encoded)
 	})
@@ -108,7 +108,7 @@ func TestContainerTag(t *testing.T) {
 			End: 3000,
 		}
 		
-		encoded, err := EncodeStruct(s)
+		encoded, err := Marshal(s)
 		require.NoError(t, err)
 		assert.NotEmpty(t, encoded)
 		

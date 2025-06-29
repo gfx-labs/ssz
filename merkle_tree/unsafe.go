@@ -20,5 +20,5 @@ func chunkedToSingle(xs [][32]byte) []byte {
 		return nil
 	}
 	// then we move over the values
-	return unsafe.Slice((*byte)(unsafe.Pointer(unsafe.SliceData(xs))), len(xs)<<32)
+	return unsafe.Slice((*byte)(unsafe.Pointer(unsafe.SliceData(xs))), len(xs)<<5)
 }

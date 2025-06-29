@@ -95,12 +95,21 @@ func decodeSlice(d *Decoder, v reflect.Value, fieldInfo *FieldInfo) error {
 	}
 
 	elemType := v.Type().Elem()
-	elemTag := &sszTag{} // Elements don't have their own tags
 	
-	// Get type info for elements
-	elemTypeInfo, err := GetTypeInfo(elemType, elemTag)
-	if err != nil {
-		return fmt.Errorf("error getting element type info: %w", err)
+	// For lists defined with ssz-size:"?,32", we need to get the element type info
+	// using the size information from the parent tag
+	var elemTypeInfo *TypeInfo
+	if fieldInfo.Type.ElementType != nil {
+		// Use the pre-parsed element type info from the parent
+		elemTypeInfo = fieldInfo.Type.ElementType
+	} else {
+		// Fallback: parse element type info without tag info
+		elemTag := &sszTag{}
+		var err error
+		elemTypeInfo, err = GetTypeInfo(elemType, elemTag)
+		if err != nil {
+			return fmt.Errorf("error getting element type info: %w", err)
+		}
 	}
 
 	// For variable-size elements, we need to handle offsets

@@ -15,8 +15,6 @@ type Slot uint64 // alias from the same package
 
 type Hash [32]byte
 
-type Hash32 []byte // For 32-byte hashes represented as slices
-
 type AttestationData struct {
 	Slot            Slot        `json:"slot"`
 	Index           uint64      `json:"index"`
@@ -153,7 +151,7 @@ type BeaconState struct {
 	LatestBlockHeader           *BeaconBlockHeader    `json:"latest_block_header"`
 	BlockRoots                  [][]byte              `json:"block_roots" ssz-size:"8192,32"`
 	StateRoots                  [][]byte              `json:"state_roots" ssz-size:"8192,32"`
-	HistoricalRoots             [][]byte              `json:"historical_roots" ssz-max:"16777216"`
+	HistoricalRoots             [][]byte              `json:"historical_roots" ssz-max:"16777216" ssz-size:"?,32"`
 	Eth1Data                    *Eth1Data             `json:"eth1_data"`
 	Eth1DataVotes               []*Eth1Data           `json:"eth1_data_votes" ssz-max:"2048"`
 	Eth1DepositIndex            uint64                `json:"eth1_deposit_index"`
@@ -205,7 +203,7 @@ type BeaconStateAltair struct {
 	LatestBlockHeader           *BeaconBlockHeader `json:"latest_block_header"`
 	BlockRoots                  [][]byte           `json:"block_roots" ssz-size:"8192,32"`
 	StateRoots                  [][]byte           `json:"state_roots" ssz-size:"8192,32"`
-	HistoricalRoots             [][]byte           `json:"historical_roots" ssz-max:"16777216"`
+	HistoricalRoots             [][]byte           `json:"historical_roots" ssz-max:"16777216" ssz-size:"?,32"`
 	Eth1Data                    *Eth1Data          `json:"eth1_data"`
 	Eth1DataVotes               []*Eth1Data        `json:"eth1_data_votes" ssz-max:"2048"`
 	Eth1DepositIndex            uint64             `json:"eth1_deposit_index"`
@@ -232,7 +230,7 @@ type BeaconStateBellatrix struct {
 	LatestBlockHeader            *BeaconBlockHeader      `json:"latest_block_header"`
 	BlockRoots                   [][]byte                `json:"block_roots" ssz-size:"8192,32"`
 	StateRoots                   [][]byte                `json:"state_roots" ssz-size:"8192,32"`
-	HistoricalRoots              [][32]byte              `json:"historical_roots" ssz-max:"16777216"`
+	HistoricalRoots              [][]byte                `json:"historical_roots" ssz-max:"16777216" ssz-size:"?,32"`
 	Eth1Data                     *Eth1Data               `json:"eth1_data"`
 	Eth1DataVotes                []*Eth1Data             `json:"eth1_data_votes" ssz-max:"2048"`
 	Eth1DepositIndex             uint64                  `json:"eth1_deposit_index"`
@@ -299,7 +297,7 @@ type ExecutionPayload struct {
 	ExtraData     []byte    `ssz-max:"32" json:"extra_data"`
 	BaseFeePerGas [32]byte  `ssz-size:"32" json:"base_fee_per_gas"`
 	BlockHash     [32]byte  `ssz-size:"32" json:"block_hash"`
-	Transactions  [][]byte  `ssz-max:"1048576" json:"transactions"`
+	Transactions  [][]byte  `ssz-max:"1048576,1073741824" ssz-size:"?,?" json:"transactions"`
 }
 
 type ExecutionPayloadHeader struct {
@@ -321,7 +319,7 @@ type ExecutionPayloadHeader struct {
 
 // ExecutionPayloadTransactions provides information about transactions.
 type ExecutionPayloadTransactions struct {
-	Transactions [][]byte `ssz-max:"1048576"`
+	Transactions [][]byte `ssz-max:"1048576,1073741824" ssz-size:"?,?"`
 }
 
 // Capella types
@@ -342,7 +340,7 @@ type ExecutionPayloadCapella struct {
 	ExtraData     []byte        `ssz-max:"32" json:"extra_data"`
 	BaseFeePerGas Uint256       `ssz-size:"32" json:"base_fee_per_gas"`
 	BlockHash     [32]byte      `ssz-size:"32" json:"block_hash"`
-	Transactions  [][]byte      `ssz-max:"1048576" json:"transactions"`
+	Transactions  [][]byte      `ssz-max:"1048576,1073741824" ssz-size:"?,?" json:"transactions"`
 	Withdrawals   []*Withdrawal `json:"withdrawals" ssz-max:"16"`
 }
 
@@ -395,7 +393,7 @@ type BeaconStateCapella struct {
 	LatestBlockHeader            *BeaconBlockHeader             `json:"latest_block_header"`
 	BlockRoots                   [8192][32]byte                 `json:"block_roots" ssz-size:"8192,32"`
 	StateRoots                   [8192][32]byte                 `json:"state_roots" ssz-size:"8192,32"`
-	HistoricalRoots              [][]byte                       `json:"historical_roots" ssz-max:"16777216"`
+	HistoricalRoots              [][]byte                       `json:"historical_roots" ssz-max:"16777216" ssz-size:"?,32"`
 	Eth1Data                     *Eth1Data                      `json:"eth1_data"`
 	Eth1DataVotes                []*Eth1Data                    `json:"eth1_data_votes" ssz-max:"2048"`
 	Eth1DepositIndex             uint64                         `json:"eth1_deposit_index"`
@@ -461,7 +459,7 @@ type ExecutionPayloadDeneb struct {
 	ExtraData     []byte        `ssz-max:"32" json:"extra_data"`
 	BaseFeePerGas Uint256       `ssz-size:"32" json:"base_fee_per_gas"`
 	BlockHash     [32]byte      `ssz-size:"32" json:"block_hash"`
-	Transactions  [][]byte      `ssz-max:"1048576" json:"transactions"`
+	Transactions  [][]byte      `ssz-max:"1048576,1073741824" ssz-size:"?,?" json:"transactions"`
 	Withdrawals   []*Withdrawal `json:"withdrawals" ssz-max:"16"`
 	BlobGasUsed   uint64        `json:"blob_gas_used"`
 	ExcessBlobGas uint64        `json:"excess_blob_gas"`

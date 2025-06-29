@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDecodeStruct_EmptySlices(t *testing.T) {
+func TestUnmarshal_EmptySlices(t *testing.T) {
 	type SliceStruct struct {
 		Before  uint32   `ssz:"uint32"`
 		Empty   []byte   `ssz:"list" ssz-max:"100"`
@@ -24,17 +24,17 @@ func TestDecodeStruct_EmptySlices(t *testing.T) {
 		After:   456,
 	}
 
-	encoded, err := EncodeStruct(original)
+	encoded, err := Marshal(original)
 	require.NoError(t, err)
 
 	var decoded SliceStruct
-	err = DecodeStruct(encoded, &decoded)
+	err = Unmarshal(encoded, &decoded)
 	require.NoError(t, err)
 
 	assert.Equal(t, original, decoded)
 }
 
-func TestDecodeStruct_SkipFields(t *testing.T) {
+func TestUnmarshal_SkipFields(t *testing.T) {
 	type SkipStruct struct {
 		Include1 uint32 `ssz:"uint32"`
 		Skip1    string `ssz:"-"`
@@ -52,7 +52,7 @@ func TestDecodeStruct_SkipFields(t *testing.T) {
 		Include3: 200,
 	}
 
-	encoded, err := EncodeStruct(original)
+	encoded, err := Marshal(original)
 	require.NoError(t, err)
 
 	// Decode
@@ -60,7 +60,7 @@ func TestDecodeStruct_SkipFields(t *testing.T) {
 	decoded.Skip1 = "different" // Should not be overwritten
 	decoded.skip2 = 777777      // Should not be overwritten
 	
-	err = DecodeStruct(encoded, &decoded)
+	err = Unmarshal(encoded, &decoded)
 	require.NoError(t, err)
 
 	// Check that only non-skipped fields were decoded
@@ -71,7 +71,7 @@ func TestDecodeStruct_SkipFields(t *testing.T) {
 	assert.Equal(t, uint64(777777), decoded.skip2) // Unchanged
 }
 
-func TestDecodeStruct_ComplexExample(t *testing.T) {
+func TestUnmarshal_ComplexExample(t *testing.T) {
 	type Deposit struct {
 		Proof []byte `ssz:"list" ssz-max:"1024"`
 		Data  struct {
@@ -152,12 +152,12 @@ func TestDecodeStruct_ComplexExample(t *testing.T) {
 	}
 
 	// Encode
-	encoded, err := EncodeStruct(original)
+	encoded, err := Marshal(original)
 	require.NoError(t, err)
 
 	// Decode
 	var decoded Block
-	err = DecodeStruct(encoded, &decoded)
+	err = Unmarshal(encoded, &decoded)
 	require.NoError(t, err)
 
 	// Compare
@@ -175,7 +175,7 @@ func TestDecodeStruct_ComplexExample(t *testing.T) {
 	}
 }
 
-func TestDecodeStruct_Uint256Pointers(t *testing.T) {
+func TestUnmarshal_Uint256Pointers(t *testing.T) {
 	t.Run("decode struct with uint256 pointer", func(t *testing.T) {
 		type WithPointer struct {
 			Value *uint256.Int `ssz:"uint256"`
@@ -187,12 +187,12 @@ func TestDecodeStruct_Uint256Pointers(t *testing.T) {
 			Value: val,
 		}
 
-		encoded, err := EncodeStruct(original)
+		encoded, err := Marshal(original)
 		require.NoError(t, err)
 
 		// Decode
 		var decoded WithPointer
-		err = DecodeStruct(encoded, &decoded)
+		err = Unmarshal(encoded, &decoded)
 		require.NoError(t, err)
 
 		// Check pointer is allocated
@@ -211,12 +211,12 @@ func TestDecodeStruct_Uint256Pointers(t *testing.T) {
 			Value: val,
 		}
 
-		encoded, err := EncodeStruct(original)
+		encoded, err := Marshal(original)
 		require.NoError(t, err)
 
 		// Decode
 		var decoded WithPointer
-		err = DecodeStruct(encoded, &decoded)
+		err = Unmarshal(encoded, &decoded)
 		require.NoError(t, err)
 
 		// Check pointer is allocated
@@ -242,12 +242,12 @@ func TestDecodeStruct_Uint256Pointers(t *testing.T) {
 			Uint128Ptr:   val3,
 		}
 
-		encoded, err := EncodeStruct(original)
+		encoded, err := Marshal(original)
 		require.NoError(t, err)
 
 		// Decode
 		var decoded Mixed
-		err = DecodeStruct(encoded, &decoded)
+		err = Unmarshal(encoded, &decoded)
 		require.NoError(t, err)
 
 		// Compare
@@ -259,7 +259,7 @@ func TestDecodeStruct_Uint256Pointers(t *testing.T) {
 	})
 }
 
-func TestDecodeStruct_Errors(t *testing.T) {
+func TestUnmarshal_Errors(t *testing.T) {
 	t.Run("nil pointer", func(t *testing.T) {
 		type TestStruct struct {
 			A uint32 `ssz:"uint32"`
@@ -267,7 +267,7 @@ func TestDecodeStruct_Errors(t *testing.T) {
 
 		data := []byte{1, 2, 3, 4}
 		var s *TestStruct
-		err := DecodeStruct(data, s)
+		err := Unmarshal(data, s)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "must not be nil")
 	})
@@ -279,17 +279,19 @@ func TestDecodeStruct_Errors(t *testing.T) {
 
 		data := []byte{1, 2, 3, 4}
 		var s TestStruct
-		err := DecodeStruct(data, s)
+		err := Unmarshal(data, s)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "must be a pointer")
 	})
 
 	t.Run("not a struct", func(t *testing.T) {
+		// This test is no longer valid since Unmarshal now works with any type
+		// Test that uint32 unmarshal works correctly instead
 		data := []byte{1, 2, 3, 4}
 		var s uint32
-		err := DecodeStruct(data, &s)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "must be a pointer to struct")
+		err := Unmarshal(data, &s)
+		assert.NoError(t, err)
+		assert.Equal(t, uint32(0x04030201), s) // Little-endian
 	})
 
 	t.Run("insufficient data", func(t *testing.T) {
@@ -300,7 +302,7 @@ func TestDecodeStruct_Errors(t *testing.T) {
 
 		data := []byte{1, 2, 3} // Not enough bytes
 		var s TestStruct
-		err := DecodeStruct(data, &s)
+		err := Unmarshal(data, &s)
 		assert.Error(t, err)
 	})
 
@@ -322,13 +324,13 @@ func TestDecodeStruct_Errors(t *testing.T) {
 		}
 
 		var decoded TestStruct
-		err := DecodeStruct(badEncoded, &decoded)
+		err := Unmarshal(badEncoded, &decoded)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "exceeds limit")
 	})
 }
 
-func TestDecodeStruct_SliceOfStructs(t *testing.T) {
+func TestUnmarshal_SliceOfStructs(t *testing.T) {
 	type Inner struct {
 		ID    uint32 `ssz:"uint32"`
 		Value uint64 `ssz:"uint64"`
@@ -350,19 +352,19 @@ func TestDecodeStruct_SliceOfStructs(t *testing.T) {
 		},
 	}
 
-	encoded, err := EncodeStruct(original)
+	encoded, err := Marshal(original)
 	require.NoError(t, err)
 
 	// Decode
 	var decoded Outer
-	err = DecodeStruct(encoded, &decoded)
+	err = Unmarshal(encoded, &decoded)
 	require.NoError(t, err)
 
 	// Compare
 	assert.Equal(t, original, decoded)
 }
 
-func TestDecodeStruct_MixedFixedVariable(t *testing.T) {
+func TestUnmarshal_MixedFixedVariable(t *testing.T) {
 	type Complex struct {
 		// Fixed fields
 		A uint8    `ssz:"uint8"`
@@ -397,12 +399,12 @@ func TestDecodeStruct_MixedFixedVariable(t *testing.T) {
 		I: 9876543210,
 	}
 
-	encoded, err := EncodeStruct(original)
+	encoded, err := Marshal(original)
 	require.NoError(t, err)
 
 	// Decode
 	var decoded Complex
-	err = DecodeStruct(encoded, &decoded)
+	err = Unmarshal(encoded, &decoded)
 	require.NoError(t, err)
 
 	// Compare

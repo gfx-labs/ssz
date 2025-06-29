@@ -41,7 +41,7 @@ func ExamplePrecacheStructSSZInfo() {
 	block.Balance.SetUint64(1000000)
 	block.SmallBalance.SetUint64(50000)
 	
-	encoded, err := flexssz.EncodeStruct(block)
+	encoded, err := flexssz.Marshal(block)
 	if err != nil {
 		log.Fatal(err)
 	}

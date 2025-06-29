@@ -6,7 +6,7 @@ import (
 	"github.com/holiman/uint256"
 )
 
-func TestHashTreeRootStruct(t *testing.T) {
+func TestHashTreeRoot(t *testing.T) {
 	// Define a test struct
 	type TestStruct struct {
 		Field1 uint64          `ssz:"uint64"`
@@ -33,7 +33,7 @@ func TestHashTreeRootStruct(t *testing.T) {
 	}
 
 	// Calculate hash tree root
-	root, err := HashTreeRootStruct(test)
+	root, err := HashTreeRoot(test)
 	if err != nil {
 		t.Fatalf("Failed to calculate hash tree root: %v", err)
 	}
@@ -73,7 +73,7 @@ func TestHashTreeRootNestedStruct(t *testing.T) {
 	}
 
 	// Calculate hash tree root
-	root, err := HashTreeRootStruct(test)
+	root, err := HashTreeRoot(test)
 	if err != nil {
 		t.Fatalf("Failed to calculate hash tree root: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestHashTreeRootBitfields(t *testing.T) {
 	}
 
 	// Calculate hash tree root
-	root, err := HashTreeRootStruct(test)
+	root, err := HashTreeRoot(test)
 	if err != nil {
 		t.Fatalf("Failed to calculate hash tree root: %v", err)
 	}
