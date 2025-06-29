@@ -247,7 +247,7 @@ func hashTreeRootVector(v reflect.Value, typeInfo *TypeInfo) ([32]byte, error) {
 	if isBasicType(elemType) {
 		var chunks [][32]byte
 
-		if elemType.Type == ssz.TypeUint8 {
+		if elemType.Type == ssz.TypeUint8 && v.CanAddr() {
 			// Special case for byte slices
 			bytes := v.Bytes()
 			chunks = packBytes(bytes)
@@ -330,6 +330,7 @@ func hashTreeRootList(v reflect.Value, typeInfo *TypeInfo) ([32]byte, error) {
 		return mixInLength(root, uint64(length)), nil
 	}
 
+	// the length 0 can be handled by a special case where we just use zero hash.
 	if length == 0 {
 		if isBasicType(elemType) {
 			size := (typeInfo.Length*elemType.FixedSize + 31) / 32
@@ -342,7 +343,7 @@ func hashTreeRootList(v reflect.Value, typeInfo *TypeInfo) ([32]byte, error) {
 	if isBasicType(elemType) {
 		var chunks [][32]byte
 
-		if elemType.Type == ssz.TypeUint8 {
+		if elemType.Type == ssz.TypeUint8 && v.CanAddr() {
 			// Special case for byte slices
 			bytes := v.Bytes()
 			chunks = packBytes(bytes)

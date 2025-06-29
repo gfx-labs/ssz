@@ -71,8 +71,5 @@ func TestHashTreeRoot(t *testing.T) {
 		if hash != arr {
 			t.Errorf("32-byte array hash should equal the array itself")
 		}
-
-		t.Logf("✓ Byte array hash: 0x%s", hex.EncodeToString(hash[:8])+"...")
 	})
 }
-
