@@ -21,6 +21,13 @@ func HashTreeRoot(schema ...any) (out [32]byte, err error) {
 	// Iterate over each element in the schema
 	for i, element := range schema {
 		switch obj := element.(type) {
+		case ssz.HashableSSZ:
+			// If the element implements the HashableSSZ interface, calculate the SSZ hash and store it in the leaves
+			root, err := obj.HashSSZ()
+			if err != nil {
+				return [32]byte{}, err
+			}
+			copy(leaves[pos:], root[:])
 		case bool:
 			if obj {
 				leaves[pos] = 1
@@ -62,13 +69,6 @@ func HashTreeRoot(schema ...any) (out [32]byte, err error) {
 				}
 				copy(leaves[pos:], root[:])
 			}
-		case ssz.HashableSSZ:
-			// If the element implements the HashableSSZ interface, calculate the SSZ hash and store it in the leaves
-			root, err := obj.HashSSZ()
-			if err != nil {
-				return [32]byte{}, err
-			}
-			copy(leaves[pos:], root[:])
 		default:
 			// If the element does not match any supported types, panic with an error message
 			panic(fmt.Sprintf("Can't create TreeRoot: unsupported type %T at index %d", obj, i))
