@@ -202,6 +202,9 @@ func generateConstructor(f *jen.File, structDef ssz.Field, schema *Schema) error
 		case ssz.TypeRef:
 			params = append(params, jen.Id(paramName).Id(field.Ref))
 			paramComments = append(paramComments, fmt.Sprintf("%s: %s reference", paramName, field.Ref))
+		case ssz.TypeBoolean:
+			params = append(params, jen.Id(paramName).Bool())
+			paramComments = append(paramComments, fmt.Sprintf("%s: boolean value", paramName))
 		default:
 			return fmt.Errorf("unsupported field type %s in constructor", field.Type)
 		}
@@ -424,6 +427,13 @@ func generateGetter(f *jen.File, typeName string, field ssz.Field, offset int, s
 			jen.Return(jen.Id("s").Index(jen.Lit(offset))),
 		)
 		
+	case ssz.TypeBoolean:
+		f.Comment(fmt.Sprintf("%s returns the %s field", methodName, field.Name))
+		f.Comment(fmt.Sprintf("Byte: %d", offset))
+		f.Func().Params(jen.Id("s").Id(typeName)).Id(methodName).Params().Bool().Block(
+			jen.Return(jen.Id("s").Index(jen.Lit(offset)).Op("!=").Lit(0)),
+		)
+		
 	case ssz.TypeUint16:
 		f.Comment(fmt.Sprintf("%s returns the %s field", methodName, field.Name))
 		f.Comment(fmt.Sprintf("Bytes: %d-%d", offset, offset+1))
@@ -521,6 +531,17 @@ func generateSetter(f *jen.File, typeName string, field ssz.Field, offset int, s
 		f.Comment(fmt.Sprintf("Byte: %d", offset))
 		f.Func().Params(jen.Id("s").Id(typeName)).Id(methodName).Params(jen.Id("v").Uint8()).Block(
 			jen.Id("s").Index(jen.Lit(offset)).Op("=").Id("v"),
+		)
+		
+	case ssz.TypeBoolean:
+		f.Comment(fmt.Sprintf("%s sets the %s field", methodName, field.Name))
+		f.Comment(fmt.Sprintf("Byte: %d", offset))
+		f.Func().Params(jen.Id("s").Id(typeName)).Id(methodName).Params(jen.Id("v").Bool()).Block(
+			jen.If(jen.Id("v")).Block(
+				jen.Id("s").Index(jen.Lit(offset)).Op("=").Lit(1),
+			).Else().Block(
+				jen.Id("s").Index(jen.Lit(offset)).Op("=").Lit(0),
+			),
 		)
 		
 	case ssz.TypeUint16:

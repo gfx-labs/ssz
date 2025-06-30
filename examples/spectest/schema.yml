@@ -1,0 +1,495 @@
+package: spectest
+structs:
+  # Basic building blocks
+  - name: Checkpoint
+    type: container
+    children:
+      - name: epoch
+        type: uint64
+      - name: root
+        type: bytevector
+        size: 32
+
+  - name: Fork
+    type: container
+    children:
+      - name: previousVersion
+        type: bytevector
+        size: 4
+      - name: currentVersion
+        type: bytevector
+        size: 4
+      - name: epoch
+        type: uint64
+
+  - name: Eth1Data
+    type: container
+    children:
+      - name: depositRoot
+        type: bytevector
+        size: 32
+      - name: depositCount
+        type: uint64
+      - name: blockHash
+        type: bytevector
+        size: 32
+
+  - name: Validator
+    type: container
+    children:
+      - name: pubkey
+        type: bytevector
+        size: 48
+      - name: withdrawalCredentials
+        type: bytevector
+        size: 32
+      - name: effectiveBalance
+        type: uint64
+      - name: slashed
+        type: boolean
+      - name: activationEligibilityEpoch
+        type: uint64
+      - name: activationEpoch
+        type: uint64
+      - name: exitEpoch
+        type: uint64
+      - name: withdrawableEpoch
+        type: uint64
+
+  - name: BeaconBlockHeader
+    type: container
+    children:
+      - name: slot
+        type: uint64
+      - name: proposerIndex
+        type: uint64
+      - name: parentRoot
+        type: bytevector
+        size: 32
+      - name: stateRoot
+        type: bytevector
+        size: 32
+      - name: bodyRoot
+        type: bytevector
+        size: 32
+
+  - name: SyncCommittee
+    type: container
+    children:
+      - name: pubkeys
+        type: vector
+        size: 512
+        children:
+          - type: bytevector
+            size: 48
+      - name: aggregatePubkey
+        type: bytevector
+        size: 48
+
+  - name: ExecutionPayloadHeader
+    type: container
+    children:
+      - name: parentHash
+        type: bytevector
+        size: 32
+      - name: feeRecipient
+        type: bytevector
+        size: 20
+      - name: stateRoot
+        type: bytevector
+        size: 32
+      - name: receiptsRoot
+        type: bytevector
+        size: 32
+      - name: logsBloom
+        type: bytevector
+        size: 256
+      - name: prevRandao
+        type: bytevector
+        size: 32
+      - name: blockNumber
+        type: uint64
+      - name: gasLimit
+        type: uint64
+      - name: gasUsed
+        type: uint64
+      - name: timestamp
+        type: uint64
+      - name: extraData
+        type: list
+        max: 32
+        children:
+          - type: uint8
+      - name: baseFeePerGas
+        type: bytevector
+        size: 32
+      - name: blockHash
+        type: bytevector
+        size: 32
+      - name: transactionsRoot
+        type: bytevector
+        size: 32
+
+  # Attestation types
+  - name: AttestationData
+    type: container
+    children:
+      - name: slot
+        type: uint64
+      - name: index
+        type: uint64
+      - name: beaconBlockRoot
+        type: bytevector
+        size: 32
+      - name: source
+        type: ref
+        ref: Checkpoint
+      - name: target
+        type: ref
+        ref: Checkpoint
+
+  - name: Attestation
+    type: container
+    children:
+      - name: aggregationBits
+        type: bitlist
+        max: 2048
+      - name: data
+        type: ref
+        ref: AttestationData
+      - name: signature
+        type: bytevector
+        size: 96
+
+  - name: IndexedAttestation
+    type: container
+    children:
+      - name: attestingIndices
+        type: list
+        max: 2048
+        children:
+          - type: uint64
+      - name: data
+        type: ref
+        ref: AttestationData
+      - name: signature
+        type: bytevector
+        size: 96
+
+  - name: SignedBeaconBlockHeader
+    type: container
+    children:
+      - name: message
+        type: ref
+        ref: BeaconBlockHeader
+      - name: signature
+        type: bytevector
+        size: 96
+
+  - name: ProposerSlashing
+    type: container
+    children:
+      - name: signedHeader1
+        type: ref
+        ref: SignedBeaconBlockHeader
+      - name: signedHeader2
+        type: ref
+        ref: SignedBeaconBlockHeader
+
+  - name: AttesterSlashing
+    type: container
+    children:
+      - name: attestation1
+        type: ref
+        ref: IndexedAttestation
+      - name: attestation2
+        type: ref
+        ref: IndexedAttestation
+
+  - name: DepositData
+    type: container
+    children:
+      - name: pubkey
+        type: bytevector
+        size: 48
+      - name: withdrawalCredentials
+        type: bytevector
+        size: 32
+      - name: amount
+        type: uint64
+      - name: signature
+        type: bytevector
+        size: 96
+
+  - name: Deposit
+    type: container
+    children:
+      - name: proof
+        type: vector
+        size: 33
+        children:
+          - type: bytevector
+            size: 32
+      - name: data
+        type: ref
+        ref: DepositData
+
+  - name: VoluntaryExit
+    type: container
+    children:
+      - name: epoch
+        type: uint64
+      - name: validatorIndex
+        type: uint64
+
+  - name: SignedVoluntaryExit
+    type: container
+    children:
+      - name: message
+        type: ref
+        ref: VoluntaryExit
+      - name: signature
+        type: bytevector
+        size: 96
+
+  - name: SyncAggregate
+    type: container
+    children:
+      - name: syncCommitteeBits
+        type: bitvector
+        size: 512
+      - name: syncCommitteeSignature
+        type: bytevector
+        size: 96
+
+  # Execution types
+  - name: ExecutionPayload
+    type: container
+    children:
+      - name: parentHash
+        type: bytevector
+        size: 32
+      - name: feeRecipient
+        type: bytevector
+        size: 20
+      - name: stateRoot
+        type: bytevector
+        size: 32
+      - name: receiptsRoot
+        type: bytevector
+        size: 32
+      - name: logsBloom
+        type: bytevector
+        size: 256
+      - name: prevRandao
+        type: bytevector
+        size: 32
+      - name: blockNumber
+        type: uint64
+      - name: gasLimit
+        type: uint64
+      - name: gasUsed
+        type: uint64
+      - name: timestamp
+        type: uint64
+      - name: extraData
+        type: list
+        max: 32
+        children:
+          - type: uint8
+      - name: baseFeePerGas
+        type: bytevector
+        size: 32
+      - name: blockHash
+        type: bytevector
+        size: 32
+      - name: transactions
+        type: list
+        max: 1048576
+        children:
+          - type: list
+            max: 1073741824
+            children:
+              - type: uint8
+
+  # Block types
+  - name: BeaconBlockBellatrix
+    type: container
+    children:
+      - name: slot
+        type: uint64
+      - name: proposerIndex
+        type: uint64
+      - name: parentRoot
+        type: bytevector
+        size: 32
+      - name: stateRoot
+        type: bytevector
+        size: 32
+      - name: body
+        type: ref
+        ref: BeaconBlockBodyBellatrix
+
+  - name: BeaconBlockBodyBellatrix
+    type: container
+    children:
+      - name: randaoReveal
+        type: bytevector
+        size: 96
+      - name: eth1Data
+        type: ref
+        ref: Eth1Data
+      - name: graffiti
+        type: bytevector
+        size: 32
+      - name: proposerSlashings
+        type: list
+        max: 16
+        children:
+          - type: ref
+            ref: ProposerSlashing
+      - name: attesterSlashings
+        type: list
+        max: 2
+        children:
+          - type: ref
+            ref: AttesterSlashing
+      - name: attestations
+        type: list
+        max: 128
+        children:
+          - type: ref
+            ref: Attestation
+      - name: deposits
+        type: list
+        max: 16
+        children:
+          - type: ref
+            ref: Deposit
+      - name: voluntaryExits
+        type: list
+        max: 16
+        children:
+          - type: ref
+            ref: SignedVoluntaryExit
+      - name: syncAggregate
+        type: ref
+        ref: SyncAggregate
+      - name: executionPayload
+        type: ref
+        ref: ExecutionPayload
+
+  - name: SignedBeaconBlockBellatrix
+    type: container
+    children:
+      - name: message
+        type: ref
+        ref: BeaconBlockBellatrix
+      - name: signature
+        type: bytevector
+        size: 96
+
+  # BeaconStateBellatrix - the main state type
+  - name: BeaconStateBellatrix
+    type: container
+    children:
+      - name: genesisTime
+        type: uint64
+      - name: genesisValidatorsRoot
+        type: bytevector
+        size: 32
+      - name: slot
+        type: uint64
+      - name: fork
+        type: ref
+        ref: Fork
+      - name: latestBlockHeader
+        type: ref
+        ref: BeaconBlockHeader
+      - name: blockRoots
+        type: vector
+        size: 8192
+        children:
+          - type: bytevector
+            size: 32
+      - name: stateRoots
+        type: vector
+        size: 8192
+        children:
+          - type: bytevector
+            size: 32
+      - name: historicalRoots
+        type: list
+        max: 16777216
+        children:
+          - type: bytevector
+            size: 32
+      - name: eth1Data
+        type: ref
+        ref: Eth1Data
+      - name: eth1DataVotes
+        type: list
+        max: 2048
+        children:
+          - type: ref
+            ref: Eth1Data
+      - name: eth1DepositIndex
+        type: uint64
+      - name: validators
+        type: list
+        max: 1099511627776
+        children:
+          - type: ref
+            ref: Validator
+      - name: balances
+        type: list
+        max: 1099511627776
+        children:
+          - type: uint64
+      - name: randaoMixes
+        type: vector
+        size: 65536
+        children:
+          - type: bytevector
+            size: 32
+      - name: slashings
+        type: vector
+        size: 8192
+        children:
+          - type: uint64
+      - name: previousEpochParticipation
+        type: list
+        max: 1099511627776
+        children:
+          - type: uint8
+      - name: currentEpochParticipation
+        type: list
+        max: 1099511627776
+        children:
+          - type: uint8
+      - name: justificationBits
+        type: bitvector
+        size: 4
+      - name: previousJustifiedCheckpoint
+        type: ref
+        ref: Checkpoint
+      - name: currentJustifiedCheckpoint
+        type: ref
+        ref: Checkpoint
+      - name: finalizedCheckpoint
+        type: ref
+        ref: Checkpoint
+      - name: inactivityScores
+        type: list
+        max: 1099511627776
+        children:
+          - type: uint64
+      - name: currentSyncCommittee
+        type: ref
+        ref: SyncCommittee
+      - name: nextSyncCommittee
+        type: ref
+        ref: SyncCommittee
+      - name: latestExecutionPayloadHeader
+        type: ref
+        ref: ExecutionPayloadHeader
