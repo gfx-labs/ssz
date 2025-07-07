@@ -10,7 +10,7 @@ import (
 
 func MerklizeChunks(chunks [][32]byte, output []byte) (err error) {
 	data := chunkedToSingle(chunks)
-	return ComputeMerkleRootRange(data, output, NextPowerOfTwo(uint64((len(data)+31)/32)), 0)
+	return ComputeMerkleRoot(data, output)
 
 }
 

@@ -12,6 +12,18 @@ import (
 
 const BYTES_PER_CHUNK = 32
 
+// chunkedToSingle converts a slice of [32]byte to a slice of bytes
+func chunkedToSingle(xs [][32]byte) []byte {
+	if len(xs) == 0 {
+		return nil
+	}
+	result := make([]byte, len(xs)*32)
+	for i, chunk := range xs {
+		copy(result[i*32:], chunk[:])
+	}
+	return result
+}
+
 // HashTreeRoot calculates the merkle root of a value based on its type and struct tags
 func HashTreeRoot(v any) ([32]byte, error) {
 	rv := reflect.ValueOf(v)
@@ -191,7 +203,14 @@ func chunkCount(typeInfo *TypeInfo) uint64 {
 		// For bitlist, chunk count is based on max bits
 		return uint64((typeInfo.BitLength + 255) / 256)
 	case ssz.TypeList:
-		// For lists, return max length
+		// For lists, calculate chunk count based on element type
+		if typeInfo.ElementType != nil && isBasicType(typeInfo.ElementType) {
+			// For basic types, calculate based on packed size
+			bytesPerElem := basicTypeSize(typeInfo.ElementType)
+			totalBytes := typeInfo.Length * bytesPerElem
+			return uint64((totalBytes + BYTES_PER_CHUNK - 1) / BYTES_PER_CHUNK)
+		}
+		// For composite types, each element is a chunk
 		return uint64(typeInfo.Length)
 	case ssz.TypeVector:
 		// For vectors, it depends on the element type
@@ -254,13 +273,6 @@ func hashTreeRootVector(v reflect.Value, typeInfo *TypeInfo) ([32]byte, error) {
 		} else {
 			// Pack other basic types
 			chunks = packBasicVector(v, length, elemType)
-		}
-
-		// Calculate limit based on max capacity
-		limit := chunkCount(typeInfo)
-		if limit > 0 && elemType.Type == ssz.TypeUint8 {
-			// For byte lists, limit is in chunks not elements
-			limit = (uint64(typeInfo.Length) + BYTES_PER_CHUNK - 1) / BYTES_PER_CHUNK
 		}
 
 		err := merkle_tree.MerklizeChunks(chunks, chunks[0][:])
@@ -352,19 +364,25 @@ func hashTreeRootList(v reflect.Value, typeInfo *TypeInfo) ([32]byte, error) {
 			chunks = packBasicVector(v, length, elemType)
 		}
 
-		// Calculate limit based on max capacity
+		// Calculate limit based on max capacity (in chunks)
 		limit := chunkCount(typeInfo)
-		if limit > 0 && elemType.Type == ssz.TypeUint8 {
-			// For byte lists, limit is in chunks not elements
-			limit = (uint64(typeInfo.Length) + BYTES_PER_CHUNK - 1) / BYTES_PER_CHUNK
+
+		// Merkleize with limit using ComputeMerkleRootRange
+		var root [32]byte
+		if length == 0 {
+			// For empty list, use zero hash at the appropriate depth
+			depth := merkle_tree.GetDepth(limit)
+			root = merkle_tree.ZeroHash(depth)
+		} else {
+			// Convert chunks to flat byte slice for ComputeMerkleRootRange
+			data := chunkedToSingle(chunks)
+			err := merkle_tree.ComputeMerkleRootRange(data, root[:], limit, 0)
+			if err != nil {
+				return [32]byte{}, err
+			}
 		}
 
-		err := merkle_tree.MerklizeChunks(chunks, chunks[0][:])
-		if err != nil {
-			return [32]byte{}, err
-		}
-
-		return mixInLength(chunks[0], uint64(length)), nil
+		return mixInLength(root, uint64(length)), nil
 	}
 
 	// For lists of composite types: mix_in_length(merkleize([hash_tree_root(element) for element in value], limit), len(value))
@@ -378,12 +396,25 @@ func hashTreeRootList(v reflect.Value, typeInfo *TypeInfo) ([32]byte, error) {
 		chunks[i] = hash
 	}
 
-	err := merkle_tree.MerklizeChunks(chunks, chunks[0][:])
-	if err != nil {
-		return [32]byte{}, err
+	// Get the limit for the list type
+	limit := uint64(typeInfo.Length) // This is the max length from ssz-max tag
+
+	// Merkleize with limit using ComputeMerkleRootRange
+	var root [32]byte
+	if length == 0 {
+		// For empty list, use zero hash at the appropriate depth
+		depth := merkle_tree.GetDepth(limit)
+		root = merkle_tree.ZeroHash(depth)
+	} else {
+		// Convert chunks to flat byte slice for ComputeMerkleRootRange
+		data := chunkedToSingle(chunks)
+		err := merkle_tree.ComputeMerkleRootRange(data, root[:], limit, 0)
+		if err != nil {
+			return [32]byte{}, err
+		}
 	}
 
-	return mixInLength(chunks[0], uint64(length)), nil
+	return mixInLength(root, uint64(length)), nil
 }
 
 // hashTreeRootContainer calculates the hash tree root of a container
