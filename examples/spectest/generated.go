@@ -80,10 +80,9 @@ func (s Checkpoint) HashSSZTo(buf []byte) ([]byte, error) {
 		return nil, fmt.Errorf("buffer too small: need at least 32 bytes, got %d", len(buf))
 	}
 	// Get hash buffer from pool
-	numFields := 2
-	poolBuf := bufpool.Get(numFields * 32)
+	poolBuf := bufpool.Get(2 * 32)
 	defer bufpool.Put(poolBuf)
-	hashBuffer := poolBuf.B[:numFields*32]
+	hashBuffer := poolBuf.B[:2*32]
 	// Fill the hash buffer with field hashes
 	if err := s.FillHashBuffer(hashBuffer); err != nil {
 		return nil, err
@@ -209,10 +208,9 @@ func (s Fork) HashSSZTo(buf []byte) ([]byte, error) {
 		return nil, fmt.Errorf("buffer too small: need at least 32 bytes, got %d", len(buf))
 	}
 	// Get hash buffer from pool
-	numFields := 3
-	poolBuf := bufpool.Get(numFields * 32)
+	poolBuf := bufpool.Get(3 * 32)
 	defer bufpool.Put(poolBuf)
-	hashBuffer := poolBuf.B[:numFields*32]
+	hashBuffer := poolBuf.B[:3*32]
 	// Fill the hash buffer with field hashes
 	if err := s.FillHashBuffer(hashBuffer); err != nil {
 		return nil, err
@@ -344,10 +342,9 @@ func (s Eth1Data) HashSSZTo(buf []byte) ([]byte, error) {
 		return nil, fmt.Errorf("buffer too small: need at least 32 bytes, got %d", len(buf))
 	}
 	// Get hash buffer from pool
-	numFields := 3
-	poolBuf := bufpool.Get(numFields * 32)
+	poolBuf := bufpool.Get(3 * 32)
 	defer bufpool.Put(poolBuf)
-	hashBuffer := poolBuf.B[:numFields*32]
+	hashBuffer := poolBuf.B[:3*32]
 	// Fill the hash buffer with field hashes
 	if err := s.FillHashBuffer(hashBuffer); err != nil {
 		return nil, err
@@ -531,10 +528,9 @@ func (s Validator) HashSSZTo(buf []byte) ([]byte, error) {
 		return nil, fmt.Errorf("buffer too small: need at least 32 bytes, got %d", len(buf))
 	}
 	// Get hash buffer from pool
-	numFields := 8
-	poolBuf := bufpool.Get(numFields * 32)
+	poolBuf := bufpool.Get(8 * 32)
 	defer bufpool.Put(poolBuf)
-	hashBuffer := poolBuf.B[:numFields*32]
+	hashBuffer := poolBuf.B[:8*32]
 	// Fill the hash buffer with field hashes
 	if err := s.FillHashBuffer(hashBuffer); err != nil {
 		return nil, err
@@ -745,10 +741,9 @@ func (s BeaconBlockHeader) HashSSZTo(buf []byte) ([]byte, error) {
 		return nil, fmt.Errorf("buffer too small: need at least 32 bytes, got %d", len(buf))
 	}
 	// Get hash buffer from pool
-	numFields := 5
-	poolBuf := bufpool.Get(numFields * 32)
+	poolBuf := bufpool.Get(5 * 32)
 	defer bufpool.Put(poolBuf)
-	hashBuffer := poolBuf.B[:numFields*32]
+	hashBuffer := poolBuf.B[:5*32]
 	// Fill the hash buffer with field hashes
 	if err := s.FillHashBuffer(hashBuffer); err != nil {
 		return nil, err
@@ -831,7 +826,7 @@ func (s BeaconBlockHeader) SetBodyRoot(v [32]byte) {
 // SyncCommittee is a fixed-size SSZ container with the following byte layout:
 //
 // Byte layout:
-// [  0-24575]  pubkeys (vector[512])
+// [  0-24575]  pubkeys (vector[512] of bytevector[48])
 // [24576-24623]  aggregatePubkey (bytevector[48])
 // Total size: 24624 bytes
 type SyncCommittee []byte
@@ -843,9 +838,9 @@ func NewSyncCommittee() SyncCommittee {
 
 // NewSyncCommitteeWithValues creates a new SyncCommittee with the provided values
 // Parameters:
-//   - pubkeys: vector value
+//   - pubkeys: vector[512] of bytevector[48]
 //   - aggregatePubkey: bytevector[48] value
-func NewSyncCommitteeWithValues(pubkeys interface{}, aggregatePubkey [48]byte) SyncCommittee {
+func NewSyncCommitteeWithValues(pubkeys [512][48]byte, aggregatePubkey [48]byte) SyncCommittee {
 	obj := NewSyncCommittee()
 	obj.SetPubkeys(pubkeys)
 	obj.SetAggregatePubkey(aggregatePubkey)
@@ -879,8 +874,30 @@ func (s SyncCommittee) FillHashBuffer(buf []byte) error {
 	}
 
 	// Hash each field and store in buffer
-	// Field pubkeys (vector type not yet supported)
-	return fmt.Errorf("vector field type not yet supported: vector")
+	// Field pubkeys (vector[512] of vector)
+	{
+		// Get hash buffer for vector elements
+		vecBuf := bufpool.Get(512 * 32)
+		defer bufpool.Put(vecBuf)
+		vecHashBuf := vecBuf.B[:512*32]
+
+		// Hash each element
+		for i := 0; i < 512; i++ {
+			// Hash bytevector element
+			elemData := s[0+i*48 : 0+(i+1)*48]
+			elemRoot, err := merkle_tree.BytesRoot(elemData)
+			if err != nil {
+				return err
+			}
+			copy(vecHashBuf[i*32:(i+1)*32], elemRoot[:])
+		}
+
+		// Compute merkle root of vector
+		if err := merkle_tree.ComputeMerkleRoot(vecHashBuf, vecHashBuf); err != nil {
+			return err
+		}
+		copy(buf[0:32], vecHashBuf[:32])
+	}
 
 	// Field aggregatePubkey (bytevector, size 48)
 	{
@@ -902,10 +919,9 @@ func (s SyncCommittee) HashSSZTo(buf []byte) ([]byte, error) {
 		return nil, fmt.Errorf("buffer too small: need at least 32 bytes, got %d", len(buf))
 	}
 	// Get hash buffer from pool
-	numFields := 2
-	poolBuf := bufpool.Get(numFields * 32)
+	poolBuf := bufpool.Get(2 * 32)
 	defer bufpool.Put(poolBuf)
-	hashBuffer := poolBuf.B[:numFields*32]
+	hashBuffer := poolBuf.B[:2*32]
 	// Fill the hash buffer with field hashes
 	if err := s.FillHashBuffer(hashBuffer); err != nil {
 		return nil, err
@@ -926,8 +942,13 @@ func (s SyncCommittee) HashSSZ() (hash [32]byte, err error) {
 }
 
 // Pubkeys returns the pubkeys field
-func (s SyncCommittee) Pubkeys() interface{} {
-	return "TODO: implement vector getter"
+// Bytes: 0-24575
+func (s SyncCommittee) Pubkeys() [512][48]byte {
+	result := [512][48]byte{}
+	for i := 0; i < 512; i++ {
+		copy(result[i][:], s[0+i*48:0+(i+1)*48])
+	}
+	return result
 }
 
 // AggregatePubkey returns the aggregatePubkey field
@@ -937,14 +958,35 @@ func (s SyncCommittee) AggregatePubkey() [48]byte {
 }
 
 // SetPubkeys sets the pubkeys field
-func (s SyncCommittee) SetPubkeys(v interface{}) {
-	// TODO: implement vector setter
+// Bytes: 0-24575
+func (s SyncCommittee) SetPubkeys(v [512][48]byte) {
+	for i := 0; i < 512; i++ {
+		copy(s[0+i*48:0+(i+1)*48], v[i][:])
+	}
 }
 
 // SetAggregatePubkey sets the aggregatePubkey field
 // Bytes: 24576-24623
 func (s SyncCommittee) SetAggregatePubkey(v [48]byte) {
 	copy(s[24576:24624], v[:])
+}
+
+// PubkeysAt returns the element at the given index in the pubkeys field
+// Panics if index is out of bounds [0, 512)
+func (s SyncCommittee) PubkeysAt(idx int) [48]byte {
+	if idx < 0 || idx >= 512 {
+		panic(fmt.Sprintf("index out of bounds: %d not in [0, %d)", idx, 512))
+	}
+	return [48]byte(s[0+idx*48 : 0+(idx+1)*48])
+}
+
+// SetPubkeysAt sets the element at the given index in the pubkeys field
+// Panics if index is out of bounds [0, 512)
+func (s SyncCommittee) SetPubkeysAt(idx int, v [48]byte) {
+	if idx < 0 || idx >= 512 {
+		panic(fmt.Sprintf("index out of bounds: %d not in [0, %d)", idx, 512))
+	}
+	copy(s[0+idx*48:0+(idx+1)*48], v[:])
 }
 
 // AttestationData is a fixed-size SSZ container with the following byte layout:
@@ -1050,10 +1092,9 @@ func (s AttestationData) HashSSZTo(buf []byte) ([]byte, error) {
 		return nil, fmt.Errorf("buffer too small: need at least 32 bytes, got %d", len(buf))
 	}
 	// Get hash buffer from pool
-	numFields := 5
-	poolBuf := bufpool.Get(numFields * 32)
+	poolBuf := bufpool.Get(5 * 32)
 	defer bufpool.Put(poolBuf)
-	hashBuffer := poolBuf.B[:numFields*32]
+	hashBuffer := poolBuf.B[:5*32]
 	// Fill the hash buffer with field hashes
 	if err := s.FillHashBuffer(hashBuffer); err != nil {
 		return nil, err
@@ -1213,10 +1254,9 @@ func (s SignedBeaconBlockHeader) HashSSZTo(buf []byte) ([]byte, error) {
 		return nil, fmt.Errorf("buffer too small: need at least 32 bytes, got %d", len(buf))
 	}
 	// Get hash buffer from pool
-	numFields := 2
-	poolBuf := bufpool.Get(numFields * 32)
+	poolBuf := bufpool.Get(2 * 32)
 	defer bufpool.Put(poolBuf)
-	hashBuffer := poolBuf.B[:numFields*32]
+	hashBuffer := poolBuf.B[:2*32]
 	// Fill the hash buffer with field hashes
 	if err := s.FillHashBuffer(hashBuffer); err != nil {
 		return nil, err
@@ -1339,10 +1379,9 @@ func (s ProposerSlashing) HashSSZTo(buf []byte) ([]byte, error) {
 		return nil, fmt.Errorf("buffer too small: need at least 32 bytes, got %d", len(buf))
 	}
 	// Get hash buffer from pool
-	numFields := 2
-	poolBuf := bufpool.Get(numFields * 32)
+	poolBuf := bufpool.Get(2 * 32)
 	defer bufpool.Put(poolBuf)
-	hashBuffer := poolBuf.B[:numFields*32]
+	hashBuffer := poolBuf.B[:2*32]
 	// Fill the hash buffer with field hashes
 	if err := s.FillHashBuffer(hashBuffer); err != nil {
 		return nil, err
@@ -1482,10 +1521,9 @@ func (s DepositData) HashSSZTo(buf []byte) ([]byte, error) {
 		return nil, fmt.Errorf("buffer too small: need at least 32 bytes, got %d", len(buf))
 	}
 	// Get hash buffer from pool
-	numFields := 4
-	poolBuf := bufpool.Get(numFields * 32)
+	poolBuf := bufpool.Get(4 * 32)
 	defer bufpool.Put(poolBuf)
-	hashBuffer := poolBuf.B[:numFields*32]
+	hashBuffer := poolBuf.B[:4*32]
 	// Fill the hash buffer with field hashes
 	if err := s.FillHashBuffer(hashBuffer); err != nil {
 		return nil, err
@@ -1556,7 +1594,7 @@ func (s DepositData) SetSignature(v [96]byte) {
 // Deposit is a fixed-size SSZ container with the following byte layout:
 //
 // Byte layout:
-// [  0-1055]  proof (vector[33])
+// [  0-1055]  proof (vector[33] of bytevector[32])
 // [1056-1239]  data (ref: DepositData)
 // Total size: 1240 bytes
 type Deposit []byte
@@ -1568,9 +1606,9 @@ func NewDeposit() Deposit {
 
 // NewDepositWithValues creates a new Deposit with the provided values
 // Parameters:
-//   - proof: vector value
+//   - proof: vector[33] of bytevector[32]
 //   - data: DepositData reference
-func NewDepositWithValues(proof interface{}, data DepositData) Deposit {
+func NewDepositWithValues(proof [33][32]byte, data DepositData) Deposit {
 	obj := NewDeposit()
 	obj.SetProof(proof)
 	obj.SetData(data)
@@ -1604,8 +1642,25 @@ func (s Deposit) FillHashBuffer(buf []byte) error {
 	}
 
 	// Hash each field and store in buffer
-	// Field proof (vector type not yet supported)
-	return fmt.Errorf("vector field type not yet supported: vector")
+	// Field proof (vector[33] of vector)
+	{
+		// Get hash buffer for vector elements
+		vecBuf := bufpool.Get(33 * 32)
+		defer bufpool.Put(vecBuf)
+		vecHashBuf := vecBuf.B[:33*32]
+
+		// Hash each element
+		{
+			// Each bytevector is exactly 32 bytes - copy all at once
+			copy(vecHashBuf, s[0:1056])
+		}
+
+		// Compute merkle root of vector
+		if err := merkle_tree.ComputeMerkleRoot(vecHashBuf, vecHashBuf); err != nil {
+			return err
+		}
+		copy(buf[0:32], vecHashBuf[:32])
+	}
 
 	// Field data (ref to DepositData)
 	{
@@ -1626,10 +1681,9 @@ func (s Deposit) HashSSZTo(buf []byte) ([]byte, error) {
 		return nil, fmt.Errorf("buffer too small: need at least 32 bytes, got %d", len(buf))
 	}
 	// Get hash buffer from pool
-	numFields := 2
-	poolBuf := bufpool.Get(numFields * 32)
+	poolBuf := bufpool.Get(2 * 32)
 	defer bufpool.Put(poolBuf)
-	hashBuffer := poolBuf.B[:numFields*32]
+	hashBuffer := poolBuf.B[:2*32]
 	// Fill the hash buffer with field hashes
 	if err := s.FillHashBuffer(hashBuffer); err != nil {
 		return nil, err
@@ -1650,8 +1704,13 @@ func (s Deposit) HashSSZ() (hash [32]byte, err error) {
 }
 
 // Proof returns the proof field
-func (s Deposit) Proof() interface{} {
-	return "TODO: implement vector getter"
+// Bytes: 0-1055
+func (s Deposit) Proof() [33][32]byte {
+	result := [33][32]byte{}
+	for i := 0; i < 33; i++ {
+		copy(result[i][:], s[0+i*32:0+(i+1)*32])
+	}
+	return result
 }
 
 // Data returns the data field
@@ -1661,14 +1720,35 @@ func (s Deposit) Data() DepositData {
 }
 
 // SetProof sets the proof field
-func (s Deposit) SetProof(v interface{}) {
-	// TODO: implement vector setter
+// Bytes: 0-1055
+func (s Deposit) SetProof(v [33][32]byte) {
+	for i := 0; i < 33; i++ {
+		copy(s[0+i*32:0+(i+1)*32], v[i][:])
+	}
 }
 
 // SetData sets the data field
 // Bytes: 1056-1239
 func (s Deposit) SetData(v DepositData) {
 	copy(s[1056:1240], v)
+}
+
+// ProofAt returns the element at the given index in the proof field
+// Panics if index is out of bounds [0, 33)
+func (s Deposit) ProofAt(idx int) [32]byte {
+	if idx < 0 || idx >= 33 {
+		panic(fmt.Sprintf("index out of bounds: %d not in [0, %d)", idx, 33))
+	}
+	return [32]byte(s[0+idx*32 : 0+(idx+1)*32])
+}
+
+// SetProofAt sets the element at the given index in the proof field
+// Panics if index is out of bounds [0, 33)
+func (s Deposit) SetProofAt(idx int, v [32]byte) {
+	if idx < 0 || idx >= 33 {
+		panic(fmt.Sprintf("index out of bounds: %d not in [0, %d)", idx, 33))
+	}
+	copy(s[0+idx*32:0+(idx+1)*32], v[:])
 }
 
 // VoluntaryExit is a fixed-size SSZ container with the following byte layout:
@@ -1744,10 +1824,9 @@ func (s VoluntaryExit) HashSSZTo(buf []byte) ([]byte, error) {
 		return nil, fmt.Errorf("buffer too small: need at least 32 bytes, got %d", len(buf))
 	}
 	// Get hash buffer from pool
-	numFields := 2
-	poolBuf := bufpool.Get(numFields * 32)
+	poolBuf := bufpool.Get(2 * 32)
 	defer bufpool.Put(poolBuf)
-	hashBuffer := poolBuf.B[:numFields*32]
+	hashBuffer := poolBuf.B[:2*32]
 	// Fill the hash buffer with field hashes
 	if err := s.FillHashBuffer(hashBuffer); err != nil {
 		return nil, err
@@ -1871,10 +1950,9 @@ func (s SignedVoluntaryExit) HashSSZTo(buf []byte) ([]byte, error) {
 		return nil, fmt.Errorf("buffer too small: need at least 32 bytes, got %d", len(buf))
 	}
 	// Get hash buffer from pool
-	numFields := 2
-	poolBuf := bufpool.Get(numFields * 32)
+	poolBuf := bufpool.Get(2 * 32)
 	defer bufpool.Put(poolBuf)
-	hashBuffer := poolBuf.B[:numFields*32]
+	hashBuffer := poolBuf.B[:2*32]
 	// Fill the hash buffer with field hashes
 	if err := s.FillHashBuffer(hashBuffer); err != nil {
 		return nil, err
@@ -1999,10 +2077,9 @@ func (s SyncAggregate) HashSSZTo(buf []byte) ([]byte, error) {
 		return nil, fmt.Errorf("buffer too small: need at least 32 bytes, got %d", len(buf))
 	}
 	// Get hash buffer from pool
-	numFields := 2
-	poolBuf := bufpool.Get(numFields * 32)
+	poolBuf := bufpool.Get(2 * 32)
 	defer bufpool.Put(poolBuf)
-	hashBuffer := poolBuf.B[:numFields*32]
+	hashBuffer := poolBuf.B[:2*32]
 	// Fill the hash buffer with field hashes
 	if err := s.FillHashBuffer(hashBuffer); err != nil {
 		return nil, err
@@ -2044,4 +2121,2813 @@ func (s SyncAggregate) SetSyncCommitteeBits(v [64]byte) {
 // Bytes: 64-159
 func (s SyncAggregate) SetSyncCommitteeSignature(v [96]byte) {
 	copy(s[64:160], v[:])
+}
+
+// ExecutionPayloadHeader is a variable-size SSZ container with the following layout:
+//
+// Fixed section layout:
+// [  0- 31]  parentHash (bytevector[32])
+// [ 32- 51]  feeRecipient (bytevector[20])
+// [ 52- 83]  stateRoot (bytevector[32])
+// [ 84-115]  receiptsRoot (bytevector[32])
+// [116-371]  logsBloom (bytevector[256])
+// [372-403]  prevRandao (bytevector[32])
+// [404-411]  blockNumber (uint64)
+// [412-419]  gasLimit (uint64)
+// [420-427]  gasUsed (uint64)
+// [428-435]  timestamp (uint64)
+// [436-467]  baseFeePerGas (bytevector[32])
+// [468-499]  blockHash (bytevector[32])
+// [500-531]  transactionsRoot (bytevector[32])
+//
+// Offset fields (4 bytes each):
+// [532-535]  extraData_offset (uint32)
+//
+// Total fixed section: 536 bytes
+//
+// Variable fields (stored after fixed section):
+// - extraData ([]uint8, limit 0)
+type ExecutionPayloadHeader struct {
+	// Fixed-size section containing fixed fields and offsets
+	fixed [536]byte
+
+	// Variable-size fields
+	extraData []byte
+}
+
+// NewExecutionPayloadHeader creates a new ExecutionPayloadHeader
+func NewExecutionPayloadHeader() *ExecutionPayloadHeader {
+	return &ExecutionPayloadHeader{}
+}
+
+// Fixed returns false as this container has variable-size fields
+func (c *ExecutionPayloadHeader) Fixed() bool {
+	return false
+}
+
+// BlockNumber returns the blockNumber field
+func (c *ExecutionPayloadHeader) BlockNumber() uint64 {
+	return binary.LittleEndian.Uint64(c.fixed[404:412])
+}
+
+// SetBlockNumber sets the blockNumber field
+func (c *ExecutionPayloadHeader) SetBlockNumber(v uint64) {
+	binary.LittleEndian.PutUint64(c.fixed[404:412], v)
+}
+
+// GasLimit returns the gasLimit field
+func (c *ExecutionPayloadHeader) GasLimit() uint64 {
+	return binary.LittleEndian.Uint64(c.fixed[412:420])
+}
+
+// SetGasLimit sets the gasLimit field
+func (c *ExecutionPayloadHeader) SetGasLimit(v uint64) {
+	binary.LittleEndian.PutUint64(c.fixed[412:420], v)
+}
+
+// GasUsed returns the gasUsed field
+func (c *ExecutionPayloadHeader) GasUsed() uint64 {
+	return binary.LittleEndian.Uint64(c.fixed[420:428])
+}
+
+// SetGasUsed sets the gasUsed field
+func (c *ExecutionPayloadHeader) SetGasUsed(v uint64) {
+	binary.LittleEndian.PutUint64(c.fixed[420:428], v)
+}
+
+// Timestamp returns the timestamp field
+func (c *ExecutionPayloadHeader) Timestamp() uint64 {
+	return binary.LittleEndian.Uint64(c.fixed[428:436])
+}
+
+// SetTimestamp sets the timestamp field
+func (c *ExecutionPayloadHeader) SetTimestamp(v uint64) {
+	binary.LittleEndian.PutUint64(c.fixed[428:436], v)
+}
+
+// getExtraDataOffset returns the offset for the extraData field
+func (c *ExecutionPayloadHeader) getExtraDataOffset() uint32 {
+	return binary.LittleEndian.Uint32(c.fixed[532:536])
+}
+
+// setExtraDataOffset sets the offset for the extraData field
+func (c *ExecutionPayloadHeader) setExtraDataOffset(offset uint32) {
+	binary.LittleEndian.PutUint32(c.fixed[532:536], offset)
+}
+
+// ExtraData returns the extraData field
+func (c *ExecutionPayloadHeader) ExtraData() []byte {
+	return c.extraData
+}
+
+// SetExtraData sets the extraData field and updates all affected offsets
+// This method automatically adjusts the offsets of subsequent variable fields
+func (c *ExecutionPayloadHeader) SetExtraData(value []byte) {
+	// Set the new value
+	c.extraData = value
+
+	// Update this field's offset (first variable field)
+	c.setExtraDataOffset(uint32(len(c.fixed)))
+
+	// No subsequent fields to update offsets
+}
+
+// SSZSize returns the total size when serialized
+func (c *ExecutionPayloadHeader) SSZSize() int {
+	// Fixed section size
+	size := len(c.fixed)
+
+	// Add sizes of variable fields
+	size += len(c.extraData)
+	return size
+}
+
+// MarshalSSZ marshals the container to SSZ format
+func (c *ExecutionPayloadHeader) MarshalSSZ() ([]byte, error) {
+	buf := make([]byte, c.SSZSize())
+	_, err := c.MarshalSSZTo(buf)
+	return buf, err
+}
+
+// MarshalSSZTo marshals the container to the provided buffer
+func (c *ExecutionPayloadHeader) MarshalSSZTo(buf []byte) ([]byte, error) {
+	// Check buffer size
+	if len(buf) < c.SSZSize() {
+		return nil, fmt.Errorf("buffer too small: expected at least %d bytes, got %d", c.SSZSize(), len(buf))
+	}
+
+	// Initialize offset tracking
+	currentOffset := uint32(len(c.fixed))
+
+	// Set offset for extraData
+	c.setExtraDataOffset(currentOffset)
+
+	// Copy extraData data
+	copy(buf[currentOffset:], c.extraData)
+	currentOffset += uint32(len(c.extraData))
+
+	// Copy fixed section (with updated offsets)
+	copy(buf[:len(c.fixed)], c.fixed[:])
+	return buf, nil
+}
+
+// UnmarshalSSZ unmarshals the container from SSZ format
+func (c *ExecutionPayloadHeader) UnmarshalSSZ(buf []byte) error {
+	// Check minimum size
+	if len(buf) < 536 {
+		return fmt.Errorf("buffer too small: expected at least %d bytes for fixed section, got %d", 536, len(buf))
+	}
+
+	// Copy fixed section
+	copy(c.fixed[:], buf[:536])
+
+	// Unmarshal variable fields
+	// Get boundaries for extraData
+	start0 := c.getExtraDataOffset()
+	end0 := uint32(len(buf))
+
+	if start0 > end0 || end0 > uint32(len(buf)) {
+		return fmt.Errorf("invalid offsets for field extraData: start=%d, end=%d, buflen=%d", start0, end0, len(buf))
+	}
+	c.extraData = make([]byte, end0-start0)
+	copy(c.extraData, buf[start0:end0])
+
+	return nil
+}
+
+// HashSSZTo computes the SSZ hash of the container
+func (c *ExecutionPayloadHeader) HashSSZTo(buf []byte) ([]byte, error) {
+	// Ensure buffer has at least 32 bytes
+	if len(buf) < 32 {
+		return nil, fmt.Errorf("buffer too small: need at least 32 bytes, got %d", len(buf))
+	}
+
+	// Get buffer for field hashes
+	numFields := 14
+	poolBuf := bufpool.Get(numFields * 32)
+	defer bufpool.Put(poolBuf)
+	hashBuf := poolBuf.B[:numFields*32]
+
+	// Hash each field
+
+	// Hash blockNumber (8 bytes) - field 6
+	copy(hashBuf[192:200], c.fixed[404:412])
+	for i := 8; i < 32; i++ {
+		hashBuf[192+i] = 0
+	}
+
+	// Hash gasLimit (8 bytes) - field 7
+	copy(hashBuf[224:232], c.fixed[412:420])
+	for i := 8; i < 32; i++ {
+		hashBuf[224+i] = 0
+	}
+
+	// Hash gasUsed (8 bytes) - field 8
+	copy(hashBuf[256:264], c.fixed[420:428])
+	for i := 8; i < 32; i++ {
+		hashBuf[256+i] = 0
+	}
+
+	// Hash timestamp (8 bytes) - field 9
+	copy(hashBuf[288:296], c.fixed[428:436])
+	for i := 8; i < 32; i++ {
+		hashBuf[288+i] = 0
+	}
+
+	// Hash extraData (variable field) - field 13
+	{
+		{
+			// TODO: Implement proper hashing for variable field
+			// For now, just fill with zeros
+			for i := 0; i < 32; i++ {
+				hashBuf[416+i] = 0
+			}
+		}
+	}
+
+	// Compute merkle root of all fields
+	if err := merkle_tree.ComputeMerkleRoot(hashBuf, hashBuf); err != nil {
+		return nil, err
+	}
+	copy(buf, hashBuf[:32])
+	return buf[:32], nil
+}
+
+// HashTreeRoot returns the SSZ hash tree root
+func (c *ExecutionPayloadHeader) HashTreeRoot() ([32]byte, error) {
+	hash := [32]byte{}
+	_, err := c.HashSSZTo(hash[:])
+	return hash, err
+}
+
+// Attestation is a variable-size SSZ container with the following layout:
+//
+// Fixed section layout:
+// [  0-127]  data (ref: AttestationData)
+// [128-223]  signature (bytevector[96])
+//
+// Offset fields (4 bytes each):
+// [224-227]  aggregationBits_offset (uint32)
+//
+// Total fixed section: 228 bytes
+//
+// Variable fields (stored after fixed section):
+// - aggregationBits (bitlist, limit 0)
+type Attestation struct {
+	// Fixed-size section containing fixed fields and offsets
+	fixed [228]byte
+
+	// Variable-size fields
+	aggregationBits []byte
+}
+
+// NewAttestation creates a new Attestation
+func NewAttestation() *Attestation {
+	return &Attestation{}
+}
+
+// Fixed returns false as this container has variable-size fields
+func (c *Attestation) Fixed() bool {
+	return false
+}
+
+// getAggregationBitsOffset returns the offset for the aggregationBits field
+func (c *Attestation) getAggregationBitsOffset() uint32 {
+	return binary.LittleEndian.Uint32(c.fixed[224:228])
+}
+
+// setAggregationBitsOffset sets the offset for the aggregationBits field
+func (c *Attestation) setAggregationBitsOffset(offset uint32) {
+	binary.LittleEndian.PutUint32(c.fixed[224:228], offset)
+}
+
+// AggregationBits returns the aggregationBits field
+func (c *Attestation) AggregationBits() []byte {
+	return c.aggregationBits
+}
+
+// SetAggregationBits sets the aggregationBits field and updates all affected offsets
+// This method automatically adjusts the offsets of subsequent variable fields
+func (c *Attestation) SetAggregationBits(value []byte) {
+	// Set the new value
+	c.aggregationBits = value
+
+	// Update this field's offset (first variable field)
+	c.setAggregationBitsOffset(uint32(len(c.fixed)))
+
+	// No subsequent fields to update offsets
+}
+
+// SSZSize returns the total size when serialized
+func (c *Attestation) SSZSize() int {
+	// Fixed section size
+	size := len(c.fixed)
+
+	// Add sizes of variable fields
+	size += len(c.aggregationBits)
+	return size
+}
+
+// MarshalSSZ marshals the container to SSZ format
+func (c *Attestation) MarshalSSZ() ([]byte, error) {
+	buf := make([]byte, c.SSZSize())
+	_, err := c.MarshalSSZTo(buf)
+	return buf, err
+}
+
+// MarshalSSZTo marshals the container to the provided buffer
+func (c *Attestation) MarshalSSZTo(buf []byte) ([]byte, error) {
+	// Check buffer size
+	if len(buf) < c.SSZSize() {
+		return nil, fmt.Errorf("buffer too small: expected at least %d bytes, got %d", c.SSZSize(), len(buf))
+	}
+
+	// Initialize offset tracking
+	currentOffset := uint32(len(c.fixed))
+
+	// Set offset for aggregationBits
+	c.setAggregationBitsOffset(currentOffset)
+
+	// Copy aggregationBits data
+	copy(buf[currentOffset:], c.aggregationBits)
+	currentOffset += uint32(len(c.aggregationBits))
+
+	// Copy fixed section (with updated offsets)
+	copy(buf[:len(c.fixed)], c.fixed[:])
+	return buf, nil
+}
+
+// UnmarshalSSZ unmarshals the container from SSZ format
+func (c *Attestation) UnmarshalSSZ(buf []byte) error {
+	// Check minimum size
+	if len(buf) < 228 {
+		return fmt.Errorf("buffer too small: expected at least %d bytes for fixed section, got %d", 228, len(buf))
+	}
+
+	// Copy fixed section
+	copy(c.fixed[:], buf[:228])
+
+	// Unmarshal variable fields
+	// Get boundaries for aggregationBits
+	start0 := c.getAggregationBitsOffset()
+	end0 := uint32(len(buf))
+
+	if start0 > end0 || end0 > uint32(len(buf)) {
+		return fmt.Errorf("invalid offsets for field aggregationBits: start=%d, end=%d, buflen=%d", start0, end0, len(buf))
+	}
+	c.aggregationBits = make([]byte, end0-start0)
+	copy(c.aggregationBits, buf[start0:end0])
+
+	return nil
+}
+
+// HashSSZTo computes the SSZ hash of the container
+func (c *Attestation) HashSSZTo(buf []byte) ([]byte, error) {
+	// Ensure buffer has at least 32 bytes
+	if len(buf) < 32 {
+		return nil, fmt.Errorf("buffer too small: need at least 32 bytes, got %d", len(buf))
+	}
+
+	// Get buffer for field hashes
+	numFields := 3
+	poolBuf := bufpool.Get(numFields * 32)
+	defer bufpool.Put(poolBuf)
+	hashBuf := poolBuf.B[:numFields*32]
+
+	// Hash each field
+
+	// Compute merkle root of all fields
+	if err := merkle_tree.ComputeMerkleRoot(hashBuf, hashBuf); err != nil {
+		return nil, err
+	}
+	copy(buf, hashBuf[:32])
+	return buf[:32], nil
+}
+
+// HashTreeRoot returns the SSZ hash tree root
+func (c *Attestation) HashTreeRoot() ([32]byte, error) {
+	hash := [32]byte{}
+	_, err := c.HashSSZTo(hash[:])
+	return hash, err
+}
+
+// IndexedAttestation is a variable-size SSZ container with the following layout:
+//
+// Fixed section layout:
+// [  0-127]  data (ref: AttestationData)
+// [128-223]  signature (bytevector[96])
+//
+// Offset fields (4 bytes each):
+// [224-227]  attestingIndices_offset (uint32)
+//
+// Total fixed section: 228 bytes
+//
+// Variable fields (stored after fixed section):
+// - attestingIndices ([]uint64, limit 0)
+type IndexedAttestation struct {
+	// Fixed-size section containing fixed fields and offsets
+	fixed [228]byte
+
+	// Variable-size fields
+	attestingIndices []uint64
+}
+
+// NewIndexedAttestation creates a new IndexedAttestation
+func NewIndexedAttestation() *IndexedAttestation {
+	return &IndexedAttestation{}
+}
+
+// Fixed returns false as this container has variable-size fields
+func (c *IndexedAttestation) Fixed() bool {
+	return false
+}
+
+// getAttestingIndicesOffset returns the offset for the attestingIndices field
+func (c *IndexedAttestation) getAttestingIndicesOffset() uint32 {
+	return binary.LittleEndian.Uint32(c.fixed[224:228])
+}
+
+// setAttestingIndicesOffset sets the offset for the attestingIndices field
+func (c *IndexedAttestation) setAttestingIndicesOffset(offset uint32) {
+	binary.LittleEndian.PutUint32(c.fixed[224:228], offset)
+}
+
+// AttestingIndices returns the attestingIndices field
+func (c *IndexedAttestation) AttestingIndices() []uint64 {
+	return c.attestingIndices
+}
+
+// SetAttestingIndices sets the attestingIndices field and updates all affected offsets
+// This method automatically adjusts the offsets of subsequent variable fields
+func (c *IndexedAttestation) SetAttestingIndices(value []uint64) {
+	// Set the new value
+	c.attestingIndices = value
+
+	// Update this field's offset (first variable field)
+	c.setAttestingIndicesOffset(uint32(len(c.fixed)))
+
+	// No subsequent fields to update offsets
+}
+
+// SSZSize returns the total size when serialized
+func (c *IndexedAttestation) SSZSize() int {
+	// Fixed section size
+	size := len(c.fixed)
+
+	// Add sizes of variable fields
+	size += len(c.attestingIndices) * 8
+	return size
+}
+
+// MarshalSSZ marshals the container to SSZ format
+func (c *IndexedAttestation) MarshalSSZ() ([]byte, error) {
+	buf := make([]byte, c.SSZSize())
+	_, err := c.MarshalSSZTo(buf)
+	return buf, err
+}
+
+// MarshalSSZTo marshals the container to the provided buffer
+func (c *IndexedAttestation) MarshalSSZTo(buf []byte) ([]byte, error) {
+	// Check buffer size
+	if len(buf) < c.SSZSize() {
+		return nil, fmt.Errorf("buffer too small: expected at least %d bytes, got %d", c.SSZSize(), len(buf))
+	}
+
+	// Initialize offset tracking
+	currentOffset := uint32(len(c.fixed))
+
+	// Set offset for attestingIndices
+	c.setAttestingIndicesOffset(currentOffset)
+
+	// Marshal attestingIndices elements
+	for _, v := range c.attestingIndices {
+		binary.LittleEndian.PutUint64(buf[currentOffset:currentOffset+8], v)
+		currentOffset += 8
+	}
+
+	// Copy fixed section (with updated offsets)
+	copy(buf[:len(c.fixed)], c.fixed[:])
+	return buf, nil
+}
+
+// UnmarshalSSZ unmarshals the container from SSZ format
+func (c *IndexedAttestation) UnmarshalSSZ(buf []byte) error {
+	// Check minimum size
+	if len(buf) < 228 {
+		return fmt.Errorf("buffer too small: expected at least %d bytes for fixed section, got %d", 228, len(buf))
+	}
+
+	// Copy fixed section
+	copy(c.fixed[:], buf[:228])
+
+	// Unmarshal variable fields
+	// Get boundaries for attestingIndices
+	start0 := c.getAttestingIndicesOffset()
+	end0 := uint32(len(buf))
+
+	if start0 > end0 || end0 > uint32(len(buf)) {
+		return fmt.Errorf("invalid offsets for field attestingIndices: start=%d, end=%d, buflen=%d", start0, end0, len(buf))
+	}
+	// Unmarshal attestingIndices elements
+	numElems0 := (end0 - start0) / 8
+	c.attestingIndices = make([]uint64, numElems0)
+	for j := uint32(0); j < numElems0; j++ {
+		offset := start0 + j*8
+		c.attestingIndices[j] = binary.LittleEndian.Uint64(buf[offset : offset+8])
+	}
+
+	return nil
+}
+
+// HashSSZTo computes the SSZ hash of the container
+func (c *IndexedAttestation) HashSSZTo(buf []byte) ([]byte, error) {
+	// Ensure buffer has at least 32 bytes
+	if len(buf) < 32 {
+		return nil, fmt.Errorf("buffer too small: need at least 32 bytes, got %d", len(buf))
+	}
+
+	// Get buffer for field hashes
+	numFields := 3
+	poolBuf := bufpool.Get(numFields * 32)
+	defer bufpool.Put(poolBuf)
+	hashBuf := poolBuf.B[:numFields*32]
+
+	// Hash each field
+
+	// Hash attestingIndices (variable field) - field 2
+	{
+		{
+			// TODO: Implement proper hashing for variable field
+			// For now, just fill with zeros
+			for i := 0; i < 32; i++ {
+				hashBuf[64+i] = 0
+			}
+		}
+	}
+
+	// Compute merkle root of all fields
+	if err := merkle_tree.ComputeMerkleRoot(hashBuf, hashBuf); err != nil {
+		return nil, err
+	}
+	copy(buf, hashBuf[:32])
+	return buf[:32], nil
+}
+
+// HashTreeRoot returns the SSZ hash tree root
+func (c *IndexedAttestation) HashTreeRoot() ([32]byte, error) {
+	hash := [32]byte{}
+	_, err := c.HashSSZTo(hash[:])
+	return hash, err
+}
+
+// AttesterSlashing is a variable-size SSZ container with the following layout:
+//
+// Fixed section layout:
+//
+// Offset fields (4 bytes each):
+// [  0-  3]  attestation1_offset (uint32)
+// [  4-  7]  attestation2_offset (uint32)
+//
+// Total fixed section: 8 bytes
+//
+// Variable fields (stored after fixed section):
+// - attestation1 (ref (variable))
+// - attestation2 (ref (variable))
+type AttesterSlashing struct {
+	// Fixed-size section containing fixed fields and offsets
+	fixed [8]byte
+
+	// Variable-size fields
+	attestation1 *IndexedAttestation
+	attestation2 *IndexedAttestation
+}
+
+// NewAttesterSlashing creates a new AttesterSlashing
+func NewAttesterSlashing() *AttesterSlashing {
+	return &AttesterSlashing{}
+}
+
+// Fixed returns false as this container has variable-size fields
+func (c *AttesterSlashing) Fixed() bool {
+	return false
+}
+
+// getAttestation1Offset returns the offset for the attestation1 field
+func (c *AttesterSlashing) getAttestation1Offset() uint32 {
+	return binary.LittleEndian.Uint32(c.fixed[0:4])
+}
+
+// setAttestation1Offset sets the offset for the attestation1 field
+func (c *AttesterSlashing) setAttestation1Offset(offset uint32) {
+	binary.LittleEndian.PutUint32(c.fixed[0:4], offset)
+}
+
+// getAttestation2Offset returns the offset for the attestation2 field
+func (c *AttesterSlashing) getAttestation2Offset() uint32 {
+	return binary.LittleEndian.Uint32(c.fixed[4:8])
+}
+
+// setAttestation2Offset sets the offset for the attestation2 field
+func (c *AttesterSlashing) setAttestation2Offset(offset uint32) {
+	binary.LittleEndian.PutUint32(c.fixed[4:8], offset)
+}
+
+// Attestation1 returns the attestation1 field
+func (c *AttesterSlashing) Attestation1() *IndexedAttestation {
+	return c.attestation1
+}
+
+// SetAttestation1 sets the attestation1 field and updates all affected offsets
+// This method automatically adjusts the offsets of subsequent variable fields
+func (c *AttesterSlashing) SetAttestation1(value *IndexedAttestation) {
+	// Set the new value
+	c.attestation1 = value
+
+	// Update this field's offset (first variable field)
+	c.setAttestation1Offset(uint32(len(c.fixed)))
+
+	// Calculate the size difference
+	oldSize := 0
+	oldSize = c.attestation1.SSZSize()
+
+	newSize := 0
+	newSize = value.SSZSize()
+
+	// Set the new value
+	c.attestation1 = value
+
+	// Update offsets of subsequent variable fields if size changed
+	if oldSize != newSize {
+		sizeDiff := newSize - oldSize
+
+		// Update offsets for all subsequent variable fields
+		{
+			c.setAttestation2Offset(uint32(int(c.getAttestation2Offset()) + sizeDiff))
+		}
+	}
+}
+
+// Attestation2 returns the attestation2 field
+func (c *AttesterSlashing) Attestation2() *IndexedAttestation {
+	return c.attestation2
+}
+
+// SetAttestation2 sets the attestation2 field and updates all affected offsets
+// This method automatically adjusts the offsets of subsequent variable fields
+func (c *AttesterSlashing) SetAttestation2(value *IndexedAttestation) {
+	// Set the new value
+	c.attestation2 = value
+
+	// No subsequent fields to update offsets
+}
+
+// SSZSize returns the total size when serialized
+func (c *AttesterSlashing) SSZSize() int {
+	// Fixed section size
+	size := len(c.fixed)
+
+	// Add sizes of variable fields
+	size += c.attestation1.SSZSize()
+	size += c.attestation2.SSZSize()
+	return size
+}
+
+// MarshalSSZ marshals the container to SSZ format
+func (c *AttesterSlashing) MarshalSSZ() ([]byte, error) {
+	buf := make([]byte, c.SSZSize())
+	_, err := c.MarshalSSZTo(buf)
+	return buf, err
+}
+
+// MarshalSSZTo marshals the container to the provided buffer
+func (c *AttesterSlashing) MarshalSSZTo(buf []byte) ([]byte, error) {
+	// Check buffer size
+	if len(buf) < c.SSZSize() {
+		return nil, fmt.Errorf("buffer too small: expected at least %d bytes, got %d", c.SSZSize(), len(buf))
+	}
+
+	// Initialize offset tracking
+	currentOffset := uint32(len(c.fixed))
+
+	// Set offset for attestation1
+	c.setAttestation1Offset(currentOffset)
+
+	// Marshal attestation1 (variable ref)
+	{
+		_, err := c.attestation1.MarshalSSZTo(buf[currentOffset:])
+		if err != nil {
+			return nil, err
+		}
+		currentOffset += uint32(c.attestation1.SSZSize())
+	}
+
+	// Set offset for attestation2
+	c.setAttestation2Offset(currentOffset)
+
+	// Marshal attestation2 (variable ref)
+	{
+		_, err := c.attestation2.MarshalSSZTo(buf[currentOffset:])
+		if err != nil {
+			return nil, err
+		}
+		currentOffset += uint32(c.attestation2.SSZSize())
+	}
+
+	// Copy fixed section (with updated offsets)
+	copy(buf[:len(c.fixed)], c.fixed[:])
+	return buf, nil
+}
+
+// UnmarshalSSZ unmarshals the container from SSZ format
+func (c *AttesterSlashing) UnmarshalSSZ(buf []byte) error {
+	// Check minimum size
+	if len(buf) < 8 {
+		return fmt.Errorf("buffer too small: expected at least %d bytes for fixed section, got %d", 8, len(buf))
+	}
+
+	// Copy fixed section
+	copy(c.fixed[:], buf[:8])
+
+	// Unmarshal variable fields
+	// Get boundaries for attestation1
+	start0 := c.getAttestation1Offset()
+	end0 := c.getAttestation2Offset()
+
+	if start0 > end0 || end0 > uint32(len(buf)) {
+		return fmt.Errorf("invalid offsets for field attestation1: start=%d, end=%d, buflen=%d", start0, end0, len(buf))
+	}
+	// Unmarshal attestation1 (variable ref)
+	c.attestation1 = new(IndexedAttestation)
+	if err := c.attestation1.UnmarshalSSZ(buf[start0:end0]); err != nil {
+		return err
+	}
+
+	// Get boundaries for attestation2
+	start1 := c.getAttestation2Offset()
+	end1 := uint32(len(buf))
+
+	if start1 > end1 || end1 > uint32(len(buf)) {
+		return fmt.Errorf("invalid offsets for field attestation2: start=%d, end=%d, buflen=%d", start1, end1, len(buf))
+	}
+	// Unmarshal attestation2 (variable ref)
+	c.attestation2 = new(IndexedAttestation)
+	if err := c.attestation2.UnmarshalSSZ(buf[start1:end1]); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// HashSSZTo computes the SSZ hash of the container
+func (c *AttesterSlashing) HashSSZTo(buf []byte) ([]byte, error) {
+	// Ensure buffer has at least 32 bytes
+	if len(buf) < 32 {
+		return nil, fmt.Errorf("buffer too small: need at least 32 bytes, got %d", len(buf))
+	}
+
+	// Get buffer for field hashes
+	numFields := 2
+	poolBuf := bufpool.Get(numFields * 32)
+	defer bufpool.Put(poolBuf)
+	hashBuf := poolBuf.B[:numFields*32]
+
+	// Hash each field
+
+	// Compute merkle root of all fields
+	if err := merkle_tree.ComputeMerkleRoot(hashBuf, hashBuf); err != nil {
+		return nil, err
+	}
+	copy(buf, hashBuf[:32])
+	return buf[:32], nil
+}
+
+// HashTreeRoot returns the SSZ hash tree root
+func (c *AttesterSlashing) HashTreeRoot() ([32]byte, error) {
+	hash := [32]byte{}
+	_, err := c.HashSSZTo(hash[:])
+	return hash, err
+}
+
+// ExecutionPayload is a variable-size SSZ container with the following layout:
+//
+// Fixed section layout:
+// [  0- 31]  parentHash (bytevector[32])
+// [ 32- 51]  feeRecipient (bytevector[20])
+// [ 52- 83]  stateRoot (bytevector[32])
+// [ 84-115]  receiptsRoot (bytevector[32])
+// [116-371]  logsBloom (bytevector[256])
+// [372-403]  prevRandao (bytevector[32])
+// [404-411]  blockNumber (uint64)
+// [412-419]  gasLimit (uint64)
+// [420-427]  gasUsed (uint64)
+// [428-435]  timestamp (uint64)
+// [436-467]  baseFeePerGas (bytevector[32])
+// [468-499]  blockHash (bytevector[32])
+//
+// Offset fields (4 bytes each):
+// [500-503]  extraData_offset (uint32)
+// [504-507]  transactions_offset (uint32)
+//
+// Total fixed section: 508 bytes
+//
+// Variable fields (stored after fixed section):
+// - extraData ([]uint8, limit 0)
+// - transactions ([]list, limit 0)
+type ExecutionPayload struct {
+	// Fixed-size section containing fixed fields and offsets
+	fixed [508]byte
+
+	// Variable-size fields
+	extraData    []byte
+	transactions [][]byte
+}
+
+// NewExecutionPayload creates a new ExecutionPayload
+func NewExecutionPayload() *ExecutionPayload {
+	return &ExecutionPayload{}
+}
+
+// Fixed returns false as this container has variable-size fields
+func (c *ExecutionPayload) Fixed() bool {
+	return false
+}
+
+// BlockNumber returns the blockNumber field
+func (c *ExecutionPayload) BlockNumber() uint64 {
+	return binary.LittleEndian.Uint64(c.fixed[404:412])
+}
+
+// SetBlockNumber sets the blockNumber field
+func (c *ExecutionPayload) SetBlockNumber(v uint64) {
+	binary.LittleEndian.PutUint64(c.fixed[404:412], v)
+}
+
+// GasLimit returns the gasLimit field
+func (c *ExecutionPayload) GasLimit() uint64 {
+	return binary.LittleEndian.Uint64(c.fixed[412:420])
+}
+
+// SetGasLimit sets the gasLimit field
+func (c *ExecutionPayload) SetGasLimit(v uint64) {
+	binary.LittleEndian.PutUint64(c.fixed[412:420], v)
+}
+
+// GasUsed returns the gasUsed field
+func (c *ExecutionPayload) GasUsed() uint64 {
+	return binary.LittleEndian.Uint64(c.fixed[420:428])
+}
+
+// SetGasUsed sets the gasUsed field
+func (c *ExecutionPayload) SetGasUsed(v uint64) {
+	binary.LittleEndian.PutUint64(c.fixed[420:428], v)
+}
+
+// Timestamp returns the timestamp field
+func (c *ExecutionPayload) Timestamp() uint64 {
+	return binary.LittleEndian.Uint64(c.fixed[428:436])
+}
+
+// SetTimestamp sets the timestamp field
+func (c *ExecutionPayload) SetTimestamp(v uint64) {
+	binary.LittleEndian.PutUint64(c.fixed[428:436], v)
+}
+
+// getExtraDataOffset returns the offset for the extraData field
+func (c *ExecutionPayload) getExtraDataOffset() uint32 {
+	return binary.LittleEndian.Uint32(c.fixed[500:504])
+}
+
+// setExtraDataOffset sets the offset for the extraData field
+func (c *ExecutionPayload) setExtraDataOffset(offset uint32) {
+	binary.LittleEndian.PutUint32(c.fixed[500:504], offset)
+}
+
+// getTransactionsOffset returns the offset for the transactions field
+func (c *ExecutionPayload) getTransactionsOffset() uint32 {
+	return binary.LittleEndian.Uint32(c.fixed[504:508])
+}
+
+// setTransactionsOffset sets the offset for the transactions field
+func (c *ExecutionPayload) setTransactionsOffset(offset uint32) {
+	binary.LittleEndian.PutUint32(c.fixed[504:508], offset)
+}
+
+// ExtraData returns the extraData field
+func (c *ExecutionPayload) ExtraData() []byte {
+	return c.extraData
+}
+
+// SetExtraData sets the extraData field and updates all affected offsets
+// This method automatically adjusts the offsets of subsequent variable fields
+func (c *ExecutionPayload) SetExtraData(value []byte) {
+	// Set the new value
+	c.extraData = value
+
+	// Update this field's offset (first variable field)
+	c.setExtraDataOffset(uint32(len(c.fixed)))
+
+	// Calculate the size difference
+	oldSize := 0
+	oldSize = len(c.extraData)
+
+	newSize := 0
+	newSize = len(value)
+
+	// Set the new value
+	c.extraData = value
+
+	// Update offsets of subsequent variable fields if size changed
+	if oldSize != newSize {
+		sizeDiff := newSize - oldSize
+
+		// Update offsets for all subsequent variable fields
+		{
+			c.setTransactionsOffset(uint32(int(c.getTransactionsOffset()) + sizeDiff))
+		}
+	}
+}
+
+// Transactions returns the transactions field
+func (c *ExecutionPayload) Transactions() [][]byte {
+	return c.transactions
+}
+
+// SetTransactions sets the transactions field and updates all affected offsets
+// This method automatically adjusts the offsets of subsequent variable fields
+func (c *ExecutionPayload) SetTransactions(value [][]byte) {
+	// Set the new value
+	c.transactions = value
+
+	// No subsequent fields to update offsets
+}
+
+// SSZSize returns the total size when serialized
+func (c *ExecutionPayload) SSZSize() int {
+	// Fixed section size
+	size := len(c.fixed)
+
+	// Add sizes of variable fields
+	size += len(c.extraData)
+	for _, elem := range c.transactions {
+		size += len(elem)
+	}
+	return size
+}
+
+// MarshalSSZ marshals the container to SSZ format
+func (c *ExecutionPayload) MarshalSSZ() ([]byte, error) {
+	buf := make([]byte, c.SSZSize())
+	_, err := c.MarshalSSZTo(buf)
+	return buf, err
+}
+
+// MarshalSSZTo marshals the container to the provided buffer
+func (c *ExecutionPayload) MarshalSSZTo(buf []byte) ([]byte, error) {
+	// Check buffer size
+	if len(buf) < c.SSZSize() {
+		return nil, fmt.Errorf("buffer too small: expected at least %d bytes, got %d", c.SSZSize(), len(buf))
+	}
+
+	// Initialize offset tracking
+	currentOffset := uint32(len(c.fixed))
+
+	// Set offset for extraData
+	c.setExtraDataOffset(currentOffset)
+
+	// Copy extraData data
+	copy(buf[currentOffset:], c.extraData)
+	currentOffset += uint32(len(c.extraData))
+
+	// Set offset for transactions
+	c.setTransactionsOffset(currentOffset)
+
+	// Marshal transactions elements (variable size)
+	for _, elem := range c.transactions {
+		{
+			_, err := elem.MarshalSSZTo(buf[currentOffset:])
+			if err != nil {
+				return nil, err
+			}
+			currentOffset += uint32(elem.SSZSize())
+		}
+	}
+
+	// Copy fixed section (with updated offsets)
+	copy(buf[:len(c.fixed)], c.fixed[:])
+	return buf, nil
+}
+
+// UnmarshalSSZ unmarshals the container from SSZ format
+func (c *ExecutionPayload) UnmarshalSSZ(buf []byte) error {
+	// Check minimum size
+	if len(buf) < 508 {
+		return fmt.Errorf("buffer too small: expected at least %d bytes for fixed section, got %d", 508, len(buf))
+	}
+
+	// Copy fixed section
+	copy(c.fixed[:], buf[:508])
+
+	// Unmarshal variable fields
+	// Get boundaries for extraData
+	start0 := c.getExtraDataOffset()
+	end0 := c.getTransactionsOffset()
+
+	if start0 > end0 || end0 > uint32(len(buf)) {
+		return fmt.Errorf("invalid offsets for field extraData: start=%d, end=%d, buflen=%d", start0, end0, len(buf))
+	}
+	c.extraData = make([]byte, end0-start0)
+	copy(c.extraData, buf[start0:end0])
+
+	// Get boundaries for transactions
+	start1 := c.getTransactionsOffset()
+	end1 := uint32(len(buf))
+
+	if start1 > end1 || end1 > uint32(len(buf)) {
+		return fmt.Errorf("invalid offsets for field transactions: start=%d, end=%d, buflen=%d", start1, end1, len(buf))
+	}
+	// TODO: Unmarshal list of lists for transactions
+	// For now, treating as empty list
+	c.transactions = make([][]byte, 0)
+
+	return nil
+}
+
+// HashSSZTo computes the SSZ hash of the container
+func (c *ExecutionPayload) HashSSZTo(buf []byte) ([]byte, error) {
+	// Ensure buffer has at least 32 bytes
+	if len(buf) < 32 {
+		return nil, fmt.Errorf("buffer too small: need at least 32 bytes, got %d", len(buf))
+	}
+
+	// Get buffer for field hashes
+	numFields := 14
+	poolBuf := bufpool.Get(numFields * 32)
+	defer bufpool.Put(poolBuf)
+	hashBuf := poolBuf.B[:numFields*32]
+
+	// Hash each field
+
+	// Hash blockNumber (8 bytes) - field 6
+	copy(hashBuf[192:200], c.fixed[404:412])
+	for i := 8; i < 32; i++ {
+		hashBuf[192+i] = 0
+	}
+
+	// Hash gasLimit (8 bytes) - field 7
+	copy(hashBuf[224:232], c.fixed[412:420])
+	for i := 8; i < 32; i++ {
+		hashBuf[224+i] = 0
+	}
+
+	// Hash gasUsed (8 bytes) - field 8
+	copy(hashBuf[256:264], c.fixed[420:428])
+	for i := 8; i < 32; i++ {
+		hashBuf[256+i] = 0
+	}
+
+	// Hash timestamp (8 bytes) - field 9
+	copy(hashBuf[288:296], c.fixed[428:436])
+	for i := 8; i < 32; i++ {
+		hashBuf[288+i] = 0
+	}
+
+	// Hash extraData (variable field) - field 12
+	{
+		{
+			// TODO: Implement proper hashing for variable field
+			// For now, just fill with zeros
+			for i := 0; i < 32; i++ {
+				hashBuf[384+i] = 0
+			}
+		}
+	}
+
+	// Hash transactions (variable field) - field 13
+	{
+		{
+			// TODO: Implement proper hashing for variable field
+			// For now, just fill with zeros
+			for i := 0; i < 32; i++ {
+				hashBuf[416+i] = 0
+			}
+		}
+	}
+
+	// Compute merkle root of all fields
+	if err := merkle_tree.ComputeMerkleRoot(hashBuf, hashBuf); err != nil {
+		return nil, err
+	}
+	copy(buf, hashBuf[:32])
+	return buf[:32], nil
+}
+
+// HashTreeRoot returns the SSZ hash tree root
+func (c *ExecutionPayload) HashTreeRoot() ([32]byte, error) {
+	hash := [32]byte{}
+	_, err := c.HashSSZTo(hash[:])
+	return hash, err
+}
+
+// BeaconBlockBellatrix is a variable-size SSZ container with the following layout:
+//
+// Fixed section layout:
+// [  0-  7]  slot (uint64)
+// [  8- 15]  proposerIndex (uint64)
+// [ 16- 47]  parentRoot (bytevector[32])
+// [ 48- 79]  stateRoot (bytevector[32])
+//
+// Offset fields (4 bytes each):
+// [ 80- 83]  body_offset (uint32)
+//
+// Total fixed section: 84 bytes
+//
+// Variable fields (stored after fixed section):
+// - body (ref (variable))
+type BeaconBlockBellatrix struct {
+	// Fixed-size section containing fixed fields and offsets
+	fixed [84]byte
+
+	// Variable-size fields
+	body *BeaconBlockBodyBellatrix
+}
+
+// NewBeaconBlockBellatrix creates a new BeaconBlockBellatrix
+func NewBeaconBlockBellatrix() *BeaconBlockBellatrix {
+	return &BeaconBlockBellatrix{}
+}
+
+// Fixed returns false as this container has variable-size fields
+func (c *BeaconBlockBellatrix) Fixed() bool {
+	return false
+}
+
+// Slot returns the slot field
+func (c *BeaconBlockBellatrix) Slot() uint64 {
+	return binary.LittleEndian.Uint64(c.fixed[0:8])
+}
+
+// SetSlot sets the slot field
+func (c *BeaconBlockBellatrix) SetSlot(v uint64) {
+	binary.LittleEndian.PutUint64(c.fixed[0:8], v)
+}
+
+// ProposerIndex returns the proposerIndex field
+func (c *BeaconBlockBellatrix) ProposerIndex() uint64 {
+	return binary.LittleEndian.Uint64(c.fixed[8:16])
+}
+
+// SetProposerIndex sets the proposerIndex field
+func (c *BeaconBlockBellatrix) SetProposerIndex(v uint64) {
+	binary.LittleEndian.PutUint64(c.fixed[8:16], v)
+}
+
+// getBodyOffset returns the offset for the body field
+func (c *BeaconBlockBellatrix) getBodyOffset() uint32 {
+	return binary.LittleEndian.Uint32(c.fixed[80:84])
+}
+
+// setBodyOffset sets the offset for the body field
+func (c *BeaconBlockBellatrix) setBodyOffset(offset uint32) {
+	binary.LittleEndian.PutUint32(c.fixed[80:84], offset)
+}
+
+// Body returns the body field
+func (c *BeaconBlockBellatrix) Body() *BeaconBlockBodyBellatrix {
+	return c.body
+}
+
+// SetBody sets the body field and updates all affected offsets
+// This method automatically adjusts the offsets of subsequent variable fields
+func (c *BeaconBlockBellatrix) SetBody(value *BeaconBlockBodyBellatrix) {
+	// Set the new value
+	c.body = value
+
+	// Update this field's offset (first variable field)
+	c.setBodyOffset(uint32(len(c.fixed)))
+
+	// No subsequent fields to update offsets
+}
+
+// SSZSize returns the total size when serialized
+func (c *BeaconBlockBellatrix) SSZSize() int {
+	// Fixed section size
+	size := len(c.fixed)
+
+	// Add sizes of variable fields
+	size += c.body.SSZSize()
+	return size
+}
+
+// MarshalSSZ marshals the container to SSZ format
+func (c *BeaconBlockBellatrix) MarshalSSZ() ([]byte, error) {
+	buf := make([]byte, c.SSZSize())
+	_, err := c.MarshalSSZTo(buf)
+	return buf, err
+}
+
+// MarshalSSZTo marshals the container to the provided buffer
+func (c *BeaconBlockBellatrix) MarshalSSZTo(buf []byte) ([]byte, error) {
+	// Check buffer size
+	if len(buf) < c.SSZSize() {
+		return nil, fmt.Errorf("buffer too small: expected at least %d bytes, got %d", c.SSZSize(), len(buf))
+	}
+
+	// Initialize offset tracking
+	currentOffset := uint32(len(c.fixed))
+
+	// Set offset for body
+	c.setBodyOffset(currentOffset)
+
+	// Marshal body (variable ref)
+	{
+		_, err := c.body.MarshalSSZTo(buf[currentOffset:])
+		if err != nil {
+			return nil, err
+		}
+		currentOffset += uint32(c.body.SSZSize())
+	}
+
+	// Copy fixed section (with updated offsets)
+	copy(buf[:len(c.fixed)], c.fixed[:])
+	return buf, nil
+}
+
+// UnmarshalSSZ unmarshals the container from SSZ format
+func (c *BeaconBlockBellatrix) UnmarshalSSZ(buf []byte) error {
+	// Check minimum size
+	if len(buf) < 84 {
+		return fmt.Errorf("buffer too small: expected at least %d bytes for fixed section, got %d", 84, len(buf))
+	}
+
+	// Copy fixed section
+	copy(c.fixed[:], buf[:84])
+
+	// Unmarshal variable fields
+	// Get boundaries for body
+	start0 := c.getBodyOffset()
+	end0 := uint32(len(buf))
+
+	if start0 > end0 || end0 > uint32(len(buf)) {
+		return fmt.Errorf("invalid offsets for field body: start=%d, end=%d, buflen=%d", start0, end0, len(buf))
+	}
+	// Unmarshal body (variable ref)
+	c.body = new(BeaconBlockBodyBellatrix)
+	if err := c.body.UnmarshalSSZ(buf[start0:end0]); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// HashSSZTo computes the SSZ hash of the container
+func (c *BeaconBlockBellatrix) HashSSZTo(buf []byte) ([]byte, error) {
+	// Ensure buffer has at least 32 bytes
+	if len(buf) < 32 {
+		return nil, fmt.Errorf("buffer too small: need at least 32 bytes, got %d", len(buf))
+	}
+
+	// Get buffer for field hashes
+	numFields := 5
+	poolBuf := bufpool.Get(numFields * 32)
+	defer bufpool.Put(poolBuf)
+	hashBuf := poolBuf.B[:numFields*32]
+
+	// Hash each field
+
+	// Hash slot (8 bytes) - field 0
+	copy(hashBuf[0:8], c.fixed[0:8])
+	for i := 8; i < 32; i++ {
+		hashBuf[0+i] = 0
+	}
+
+	// Hash proposerIndex (8 bytes) - field 1
+	copy(hashBuf[32:40], c.fixed[8:16])
+	for i := 8; i < 32; i++ {
+		hashBuf[32+i] = 0
+	}
+
+	// Compute merkle root of all fields
+	if err := merkle_tree.ComputeMerkleRoot(hashBuf, hashBuf); err != nil {
+		return nil, err
+	}
+	copy(buf, hashBuf[:32])
+	return buf[:32], nil
+}
+
+// HashTreeRoot returns the SSZ hash tree root
+func (c *BeaconBlockBellatrix) HashTreeRoot() ([32]byte, error) {
+	hash := [32]byte{}
+	_, err := c.HashSSZTo(hash[:])
+	return hash, err
+}
+
+// BeaconBlockBodyBellatrix is a variable-size SSZ container with the following layout:
+//
+// Fixed section layout:
+// [  0- 95]  randaoReveal (bytevector[96])
+// [ 96-167]  eth1Data (ref: Eth1Data)
+// [168-199]  graffiti (bytevector[32])
+// [200-359]  syncAggregate (ref: SyncAggregate)
+//
+// Offset fields (4 bytes each):
+// [360-363]  proposerSlashings_offset (uint32)
+// [364-367]  attesterSlashings_offset (uint32)
+// [368-371]  attestations_offset (uint32)
+// [372-375]  deposits_offset (uint32)
+// [376-379]  voluntaryExits_offset (uint32)
+// [380-383]  executionPayload_offset (uint32)
+//
+// Total fixed section: 384 bytes
+//
+// Variable fields (stored after fixed section):
+// - proposerSlashings ([]ref: ProposerSlashing, limit 0)
+// - attesterSlashings ([]ref: AttesterSlashing, limit 0)
+// - attestations ([]ref: Attestation, limit 0)
+// - deposits ([]ref: Deposit, limit 0)
+// - voluntaryExits ([]ref: SignedVoluntaryExit, limit 0)
+// - executionPayload (ref (variable))
+type BeaconBlockBodyBellatrix struct {
+	// Fixed-size section containing fixed fields and offsets
+	fixed [384]byte
+
+	// Variable-size fields
+	proposerSlashings []ProposerSlashing
+	attesterSlashings []*AttesterSlashing
+	attestations      []*Attestation
+	deposits          []Deposit
+	voluntaryExits    []SignedVoluntaryExit
+	executionPayload  *ExecutionPayload
+}
+
+// NewBeaconBlockBodyBellatrix creates a new BeaconBlockBodyBellatrix
+func NewBeaconBlockBodyBellatrix() *BeaconBlockBodyBellatrix {
+	return &BeaconBlockBodyBellatrix{}
+}
+
+// Fixed returns false as this container has variable-size fields
+func (c *BeaconBlockBodyBellatrix) Fixed() bool {
+	return false
+}
+
+// getProposerSlashingsOffset returns the offset for the proposerSlashings field
+func (c *BeaconBlockBodyBellatrix) getProposerSlashingsOffset() uint32 {
+	return binary.LittleEndian.Uint32(c.fixed[360:364])
+}
+
+// setProposerSlashingsOffset sets the offset for the proposerSlashings field
+func (c *BeaconBlockBodyBellatrix) setProposerSlashingsOffset(offset uint32) {
+	binary.LittleEndian.PutUint32(c.fixed[360:364], offset)
+}
+
+// getAttesterSlashingsOffset returns the offset for the attesterSlashings field
+func (c *BeaconBlockBodyBellatrix) getAttesterSlashingsOffset() uint32 {
+	return binary.LittleEndian.Uint32(c.fixed[364:368])
+}
+
+// setAttesterSlashingsOffset sets the offset for the attesterSlashings field
+func (c *BeaconBlockBodyBellatrix) setAttesterSlashingsOffset(offset uint32) {
+	binary.LittleEndian.PutUint32(c.fixed[364:368], offset)
+}
+
+// getAttestationsOffset returns the offset for the attestations field
+func (c *BeaconBlockBodyBellatrix) getAttestationsOffset() uint32 {
+	return binary.LittleEndian.Uint32(c.fixed[368:372])
+}
+
+// setAttestationsOffset sets the offset for the attestations field
+func (c *BeaconBlockBodyBellatrix) setAttestationsOffset(offset uint32) {
+	binary.LittleEndian.PutUint32(c.fixed[368:372], offset)
+}
+
+// getDepositsOffset returns the offset for the deposits field
+func (c *BeaconBlockBodyBellatrix) getDepositsOffset() uint32 {
+	return binary.LittleEndian.Uint32(c.fixed[372:376])
+}
+
+// setDepositsOffset sets the offset for the deposits field
+func (c *BeaconBlockBodyBellatrix) setDepositsOffset(offset uint32) {
+	binary.LittleEndian.PutUint32(c.fixed[372:376], offset)
+}
+
+// getVoluntaryExitsOffset returns the offset for the voluntaryExits field
+func (c *BeaconBlockBodyBellatrix) getVoluntaryExitsOffset() uint32 {
+	return binary.LittleEndian.Uint32(c.fixed[376:380])
+}
+
+// setVoluntaryExitsOffset sets the offset for the voluntaryExits field
+func (c *BeaconBlockBodyBellatrix) setVoluntaryExitsOffset(offset uint32) {
+	binary.LittleEndian.PutUint32(c.fixed[376:380], offset)
+}
+
+// getExecutionPayloadOffset returns the offset for the executionPayload field
+func (c *BeaconBlockBodyBellatrix) getExecutionPayloadOffset() uint32 {
+	return binary.LittleEndian.Uint32(c.fixed[380:384])
+}
+
+// setExecutionPayloadOffset sets the offset for the executionPayload field
+func (c *BeaconBlockBodyBellatrix) setExecutionPayloadOffset(offset uint32) {
+	binary.LittleEndian.PutUint32(c.fixed[380:384], offset)
+}
+
+// ProposerSlashings returns the proposerSlashings field
+func (c *BeaconBlockBodyBellatrix) ProposerSlashings() []ProposerSlashing {
+	return c.proposerSlashings
+}
+
+// SetProposerSlashings sets the proposerSlashings field and updates all affected offsets
+// This method automatically adjusts the offsets of subsequent variable fields
+func (c *BeaconBlockBodyBellatrix) SetProposerSlashings(value []ProposerSlashing) {
+	// Set the new value
+	c.proposerSlashings = value
+
+	// Update this field's offset (first variable field)
+	c.setProposerSlashingsOffset(uint32(len(c.fixed)))
+
+	// Calculate the size difference
+	oldSize := 0
+	oldSize = len(c.proposerSlashings) * 416
+
+	newSize := 0
+	newSize = len(value) * 416
+
+	// Set the new value
+	c.proposerSlashings = value
+
+	// Update offsets of subsequent variable fields if size changed
+	if oldSize != newSize {
+		sizeDiff := newSize - oldSize
+
+		// Update offsets for all subsequent variable fields
+		{
+			c.setAttesterSlashingsOffset(uint32(int(c.getAttesterSlashingsOffset()) + sizeDiff))
+			c.setAttestationsOffset(uint32(int(c.getAttestationsOffset()) + sizeDiff))
+			c.setDepositsOffset(uint32(int(c.getDepositsOffset()) + sizeDiff))
+			c.setVoluntaryExitsOffset(uint32(int(c.getVoluntaryExitsOffset()) + sizeDiff))
+			c.setExecutionPayloadOffset(uint32(int(c.getExecutionPayloadOffset()) + sizeDiff))
+		}
+	}
+}
+
+// AttesterSlashings returns the attesterSlashings field
+func (c *BeaconBlockBodyBellatrix) AttesterSlashings() []*AttesterSlashing {
+	return c.attesterSlashings
+}
+
+// SetAttesterSlashings sets the attesterSlashings field and updates all affected offsets
+// This method automatically adjusts the offsets of subsequent variable fields
+func (c *BeaconBlockBodyBellatrix) SetAttesterSlashings(value []*AttesterSlashing) {
+	// Set the new value
+	c.attesterSlashings = value
+
+	// Calculate the size difference
+	oldSize := 0
+	for _, elem := range c.attesterSlashings {
+		oldSize += elem.SSZSize()
+	}
+
+	newSize := 0
+	for _, elem := range value {
+		newSize += elem.SSZSize()
+	}
+
+	// Set the new value
+	c.attesterSlashings = value
+
+	// Update offsets of subsequent variable fields if size changed
+	if oldSize != newSize {
+		sizeDiff := newSize - oldSize
+
+		// Update offsets for all subsequent variable fields
+		{
+			c.setAttestationsOffset(uint32(int(c.getAttestationsOffset()) + sizeDiff))
+			c.setDepositsOffset(uint32(int(c.getDepositsOffset()) + sizeDiff))
+			c.setVoluntaryExitsOffset(uint32(int(c.getVoluntaryExitsOffset()) + sizeDiff))
+			c.setExecutionPayloadOffset(uint32(int(c.getExecutionPayloadOffset()) + sizeDiff))
+		}
+	}
+}
+
+// Attestations returns the attestations field
+func (c *BeaconBlockBodyBellatrix) Attestations() []*Attestation {
+	return c.attestations
+}
+
+// SetAttestations sets the attestations field and updates all affected offsets
+// This method automatically adjusts the offsets of subsequent variable fields
+func (c *BeaconBlockBodyBellatrix) SetAttestations(value []*Attestation) {
+	// Set the new value
+	c.attestations = value
+
+	// Calculate the size difference
+	oldSize := 0
+	for _, elem := range c.attestations {
+		oldSize += elem.SSZSize()
+	}
+
+	newSize := 0
+	for _, elem := range value {
+		newSize += elem.SSZSize()
+	}
+
+	// Set the new value
+	c.attestations = value
+
+	// Update offsets of subsequent variable fields if size changed
+	if oldSize != newSize {
+		sizeDiff := newSize - oldSize
+
+		// Update offsets for all subsequent variable fields
+		{
+			c.setDepositsOffset(uint32(int(c.getDepositsOffset()) + sizeDiff))
+			c.setVoluntaryExitsOffset(uint32(int(c.getVoluntaryExitsOffset()) + sizeDiff))
+			c.setExecutionPayloadOffset(uint32(int(c.getExecutionPayloadOffset()) + sizeDiff))
+		}
+	}
+}
+
+// Deposits returns the deposits field
+func (c *BeaconBlockBodyBellatrix) Deposits() []Deposit {
+	return c.deposits
+}
+
+// SetDeposits sets the deposits field and updates all affected offsets
+// This method automatically adjusts the offsets of subsequent variable fields
+func (c *BeaconBlockBodyBellatrix) SetDeposits(value []Deposit) {
+	// Set the new value
+	c.deposits = value
+
+	// Calculate the size difference
+	oldSize := 0
+	oldSize = len(c.deposits) * 1240
+
+	newSize := 0
+	newSize = len(value) * 1240
+
+	// Set the new value
+	c.deposits = value
+
+	// Update offsets of subsequent variable fields if size changed
+	if oldSize != newSize {
+		sizeDiff := newSize - oldSize
+
+		// Update offsets for all subsequent variable fields
+		{
+			c.setVoluntaryExitsOffset(uint32(int(c.getVoluntaryExitsOffset()) + sizeDiff))
+			c.setExecutionPayloadOffset(uint32(int(c.getExecutionPayloadOffset()) + sizeDiff))
+		}
+	}
+}
+
+// VoluntaryExits returns the voluntaryExits field
+func (c *BeaconBlockBodyBellatrix) VoluntaryExits() []SignedVoluntaryExit {
+	return c.voluntaryExits
+}
+
+// SetVoluntaryExits sets the voluntaryExits field and updates all affected offsets
+// This method automatically adjusts the offsets of subsequent variable fields
+func (c *BeaconBlockBodyBellatrix) SetVoluntaryExits(value []SignedVoluntaryExit) {
+	// Set the new value
+	c.voluntaryExits = value
+
+	// Calculate the size difference
+	oldSize := 0
+	oldSize = len(c.voluntaryExits) * 112
+
+	newSize := 0
+	newSize = len(value) * 112
+
+	// Set the new value
+	c.voluntaryExits = value
+
+	// Update offsets of subsequent variable fields if size changed
+	if oldSize != newSize {
+		sizeDiff := newSize - oldSize
+
+		// Update offsets for all subsequent variable fields
+		{
+			c.setExecutionPayloadOffset(uint32(int(c.getExecutionPayloadOffset()) + sizeDiff))
+		}
+	}
+}
+
+// ExecutionPayload returns the executionPayload field
+func (c *BeaconBlockBodyBellatrix) ExecutionPayload() *ExecutionPayload {
+	return c.executionPayload
+}
+
+// SetExecutionPayload sets the executionPayload field and updates all affected offsets
+// This method automatically adjusts the offsets of subsequent variable fields
+func (c *BeaconBlockBodyBellatrix) SetExecutionPayload(value *ExecutionPayload) {
+	// Set the new value
+	c.executionPayload = value
+
+	// No subsequent fields to update offsets
+}
+
+// SSZSize returns the total size when serialized
+func (c *BeaconBlockBodyBellatrix) SSZSize() int {
+	// Fixed section size
+	size := len(c.fixed)
+
+	// Add sizes of variable fields
+	size += len(c.proposerSlashings) * 416
+	for _, elem := range c.attesterSlashings {
+		size += elem.SSZSize()
+	}
+	for _, elem := range c.attestations {
+		size += elem.SSZSize()
+	}
+	size += len(c.deposits) * 1240
+	size += len(c.voluntaryExits) * 112
+	size += c.executionPayload.SSZSize()
+	return size
+}
+
+// MarshalSSZ marshals the container to SSZ format
+func (c *BeaconBlockBodyBellatrix) MarshalSSZ() ([]byte, error) {
+	buf := make([]byte, c.SSZSize())
+	_, err := c.MarshalSSZTo(buf)
+	return buf, err
+}
+
+// MarshalSSZTo marshals the container to the provided buffer
+func (c *BeaconBlockBodyBellatrix) MarshalSSZTo(buf []byte) ([]byte, error) {
+	// Check buffer size
+	if len(buf) < c.SSZSize() {
+		return nil, fmt.Errorf("buffer too small: expected at least %d bytes, got %d", c.SSZSize(), len(buf))
+	}
+
+	// Initialize offset tracking
+	currentOffset := uint32(len(c.fixed))
+
+	// Set offset for proposerSlashings
+	c.setProposerSlashingsOffset(currentOffset)
+
+	// Marshal proposerSlashings elements (fixed refs)
+	for _, elem := range c.proposerSlashings {
+		copy(buf[currentOffset:], elem)
+		currentOffset += uint32(len(elem))
+	}
+
+	// Set offset for attesterSlashings
+	c.setAttesterSlashingsOffset(currentOffset)
+
+	// Marshal attesterSlashings elements (variable refs)
+	for _, elem := range c.attesterSlashings {
+		{
+			_, err := elem.MarshalSSZTo(buf[currentOffset:])
+			if err != nil {
+				return nil, err
+			}
+			currentOffset += uint32(elem.SSZSize())
+		}
+	}
+
+	// Set offset for attestations
+	c.setAttestationsOffset(currentOffset)
+
+	// Marshal attestations elements (variable refs)
+	for _, elem := range c.attestations {
+		{
+			_, err := elem.MarshalSSZTo(buf[currentOffset:])
+			if err != nil {
+				return nil, err
+			}
+			currentOffset += uint32(elem.SSZSize())
+		}
+	}
+
+	// Set offset for deposits
+	c.setDepositsOffset(currentOffset)
+
+	// Marshal deposits elements (fixed refs)
+	for _, elem := range c.deposits {
+		copy(buf[currentOffset:], elem)
+		currentOffset += uint32(len(elem))
+	}
+
+	// Set offset for voluntaryExits
+	c.setVoluntaryExitsOffset(currentOffset)
+
+	// Marshal voluntaryExits elements (fixed refs)
+	for _, elem := range c.voluntaryExits {
+		copy(buf[currentOffset:], elem)
+		currentOffset += uint32(len(elem))
+	}
+
+	// Set offset for executionPayload
+	c.setExecutionPayloadOffset(currentOffset)
+
+	// Marshal executionPayload (variable ref)
+	{
+		_, err := c.executionPayload.MarshalSSZTo(buf[currentOffset:])
+		if err != nil {
+			return nil, err
+		}
+		currentOffset += uint32(c.executionPayload.SSZSize())
+	}
+
+	// Copy fixed section (with updated offsets)
+	copy(buf[:len(c.fixed)], c.fixed[:])
+	return buf, nil
+}
+
+// UnmarshalSSZ unmarshals the container from SSZ format
+func (c *BeaconBlockBodyBellatrix) UnmarshalSSZ(buf []byte) error {
+	// Check minimum size
+	if len(buf) < 384 {
+		return fmt.Errorf("buffer too small: expected at least %d bytes for fixed section, got %d", 384, len(buf))
+	}
+
+	// Copy fixed section
+	copy(c.fixed[:], buf[:384])
+
+	// Unmarshal variable fields
+	// Get boundaries for proposerSlashings
+	start0 := c.getProposerSlashingsOffset()
+	end0 := c.getAttesterSlashingsOffset()
+
+	if start0 > end0 || end0 > uint32(len(buf)) {
+		return fmt.Errorf("invalid offsets for field proposerSlashings: start=%d, end=%d, buflen=%d", start0, end0, len(buf))
+	}
+	// TODO: Unmarshal proposerSlashings with element type ref
+
+	// Get boundaries for attesterSlashings
+	start1 := c.getAttesterSlashingsOffset()
+	end1 := c.getAttestationsOffset()
+
+	if start1 > end1 || end1 > uint32(len(buf)) {
+		return fmt.Errorf("invalid offsets for field attesterSlashings: start=%d, end=%d, buflen=%d", start1, end1, len(buf))
+	}
+	// TODO: Unmarshal attesterSlashings with element type ref
+
+	// Get boundaries for attestations
+	start2 := c.getAttestationsOffset()
+	end2 := c.getDepositsOffset()
+
+	if start2 > end2 || end2 > uint32(len(buf)) {
+		return fmt.Errorf("invalid offsets for field attestations: start=%d, end=%d, buflen=%d", start2, end2, len(buf))
+	}
+	// TODO: Unmarshal attestations with element type ref
+
+	// Get boundaries for deposits
+	start3 := c.getDepositsOffset()
+	end3 := c.getVoluntaryExitsOffset()
+
+	if start3 > end3 || end3 > uint32(len(buf)) {
+		return fmt.Errorf("invalid offsets for field deposits: start=%d, end=%d, buflen=%d", start3, end3, len(buf))
+	}
+	// TODO: Unmarshal deposits with element type ref
+
+	// Get boundaries for voluntaryExits
+	start4 := c.getVoluntaryExitsOffset()
+	end4 := c.getExecutionPayloadOffset()
+
+	if start4 > end4 || end4 > uint32(len(buf)) {
+		return fmt.Errorf("invalid offsets for field voluntaryExits: start=%d, end=%d, buflen=%d", start4, end4, len(buf))
+	}
+	// TODO: Unmarshal voluntaryExits with element type ref
+
+	// Get boundaries for executionPayload
+	start5 := c.getExecutionPayloadOffset()
+	end5 := uint32(len(buf))
+
+	if start5 > end5 || end5 > uint32(len(buf)) {
+		return fmt.Errorf("invalid offsets for field executionPayload: start=%d, end=%d, buflen=%d", start5, end5, len(buf))
+	}
+	// Unmarshal executionPayload (variable ref)
+	c.executionPayload = new(ExecutionPayload)
+	if err := c.executionPayload.UnmarshalSSZ(buf[start5:end5]); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// HashSSZTo computes the SSZ hash of the container
+func (c *BeaconBlockBodyBellatrix) HashSSZTo(buf []byte) ([]byte, error) {
+	// Ensure buffer has at least 32 bytes
+	if len(buf) < 32 {
+		return nil, fmt.Errorf("buffer too small: need at least 32 bytes, got %d", len(buf))
+	}
+
+	// Get buffer for field hashes
+	numFields := 10
+	poolBuf := bufpool.Get(numFields * 32)
+	defer bufpool.Put(poolBuf)
+	hashBuf := poolBuf.B[:numFields*32]
+
+	// Hash each field
+
+	// Hash proposerSlashings (variable field) - field 4
+	{
+		{
+			// TODO: Implement proper hashing for variable field
+			// For now, just fill with zeros
+			for i := 0; i < 32; i++ {
+				hashBuf[128+i] = 0
+			}
+		}
+	}
+
+	// Hash attesterSlashings (variable field) - field 5
+	{
+		{
+			// TODO: Implement proper hashing for variable field
+			// For now, just fill with zeros
+			for i := 0; i < 32; i++ {
+				hashBuf[160+i] = 0
+			}
+		}
+	}
+
+	// Hash attestations (variable field) - field 6
+	{
+		{
+			// TODO: Implement proper hashing for variable field
+			// For now, just fill with zeros
+			for i := 0; i < 32; i++ {
+				hashBuf[192+i] = 0
+			}
+		}
+	}
+
+	// Hash deposits (variable field) - field 7
+	{
+		{
+			// TODO: Implement proper hashing for variable field
+			// For now, just fill with zeros
+			for i := 0; i < 32; i++ {
+				hashBuf[224+i] = 0
+			}
+		}
+	}
+
+	// Hash voluntaryExits (variable field) - field 8
+	{
+		{
+			// TODO: Implement proper hashing for variable field
+			// For now, just fill with zeros
+			for i := 0; i < 32; i++ {
+				hashBuf[256+i] = 0
+			}
+		}
+	}
+
+	// Compute merkle root of all fields
+	if err := merkle_tree.ComputeMerkleRoot(hashBuf, hashBuf); err != nil {
+		return nil, err
+	}
+	copy(buf, hashBuf[:32])
+	return buf[:32], nil
+}
+
+// HashTreeRoot returns the SSZ hash tree root
+func (c *BeaconBlockBodyBellatrix) HashTreeRoot() ([32]byte, error) {
+	hash := [32]byte{}
+	_, err := c.HashSSZTo(hash[:])
+	return hash, err
+}
+
+// SignedBeaconBlockBellatrix is a variable-size SSZ container with the following layout:
+//
+// Fixed section layout:
+// [  0- 95]  signature (bytevector[96])
+//
+// Offset fields (4 bytes each):
+// [ 96- 99]  message_offset (uint32)
+//
+// Total fixed section: 100 bytes
+//
+// Variable fields (stored after fixed section):
+// - message (ref (variable))
+type SignedBeaconBlockBellatrix struct {
+	// Fixed-size section containing fixed fields and offsets
+	fixed [100]byte
+
+	// Variable-size fields
+	message *BeaconBlockBellatrix
+}
+
+// NewSignedBeaconBlockBellatrix creates a new SignedBeaconBlockBellatrix
+func NewSignedBeaconBlockBellatrix() *SignedBeaconBlockBellatrix {
+	return &SignedBeaconBlockBellatrix{}
+}
+
+// Fixed returns false as this container has variable-size fields
+func (c *SignedBeaconBlockBellatrix) Fixed() bool {
+	return false
+}
+
+// getMessageOffset returns the offset for the message field
+func (c *SignedBeaconBlockBellatrix) getMessageOffset() uint32 {
+	return binary.LittleEndian.Uint32(c.fixed[96:100])
+}
+
+// setMessageOffset sets the offset for the message field
+func (c *SignedBeaconBlockBellatrix) setMessageOffset(offset uint32) {
+	binary.LittleEndian.PutUint32(c.fixed[96:100], offset)
+}
+
+// Message returns the message field
+func (c *SignedBeaconBlockBellatrix) Message() *BeaconBlockBellatrix {
+	return c.message
+}
+
+// SetMessage sets the message field and updates all affected offsets
+// This method automatically adjusts the offsets of subsequent variable fields
+func (c *SignedBeaconBlockBellatrix) SetMessage(value *BeaconBlockBellatrix) {
+	// Set the new value
+	c.message = value
+
+	// Update this field's offset (first variable field)
+	c.setMessageOffset(uint32(len(c.fixed)))
+
+	// No subsequent fields to update offsets
+}
+
+// SSZSize returns the total size when serialized
+func (c *SignedBeaconBlockBellatrix) SSZSize() int {
+	// Fixed section size
+	size := len(c.fixed)
+
+	// Add sizes of variable fields
+	size += c.message.SSZSize()
+	return size
+}
+
+// MarshalSSZ marshals the container to SSZ format
+func (c *SignedBeaconBlockBellatrix) MarshalSSZ() ([]byte, error) {
+	buf := make([]byte, c.SSZSize())
+	_, err := c.MarshalSSZTo(buf)
+	return buf, err
+}
+
+// MarshalSSZTo marshals the container to the provided buffer
+func (c *SignedBeaconBlockBellatrix) MarshalSSZTo(buf []byte) ([]byte, error) {
+	// Check buffer size
+	if len(buf) < c.SSZSize() {
+		return nil, fmt.Errorf("buffer too small: expected at least %d bytes, got %d", c.SSZSize(), len(buf))
+	}
+
+	// Initialize offset tracking
+	currentOffset := uint32(len(c.fixed))
+
+	// Set offset for message
+	c.setMessageOffset(currentOffset)
+
+	// Marshal message (variable ref)
+	{
+		_, err := c.message.MarshalSSZTo(buf[currentOffset:])
+		if err != nil {
+			return nil, err
+		}
+		currentOffset += uint32(c.message.SSZSize())
+	}
+
+	// Copy fixed section (with updated offsets)
+	copy(buf[:len(c.fixed)], c.fixed[:])
+	return buf, nil
+}
+
+// UnmarshalSSZ unmarshals the container from SSZ format
+func (c *SignedBeaconBlockBellatrix) UnmarshalSSZ(buf []byte) error {
+	// Check minimum size
+	if len(buf) < 100 {
+		return fmt.Errorf("buffer too small: expected at least %d bytes for fixed section, got %d", 100, len(buf))
+	}
+
+	// Copy fixed section
+	copy(c.fixed[:], buf[:100])
+
+	// Unmarshal variable fields
+	// Get boundaries for message
+	start0 := c.getMessageOffset()
+	end0 := uint32(len(buf))
+
+	if start0 > end0 || end0 > uint32(len(buf)) {
+		return fmt.Errorf("invalid offsets for field message: start=%d, end=%d, buflen=%d", start0, end0, len(buf))
+	}
+	// Unmarshal message (variable ref)
+	c.message = new(BeaconBlockBellatrix)
+	if err := c.message.UnmarshalSSZ(buf[start0:end0]); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// HashSSZTo computes the SSZ hash of the container
+func (c *SignedBeaconBlockBellatrix) HashSSZTo(buf []byte) ([]byte, error) {
+	// Ensure buffer has at least 32 bytes
+	if len(buf) < 32 {
+		return nil, fmt.Errorf("buffer too small: need at least 32 bytes, got %d", len(buf))
+	}
+
+	// Get buffer for field hashes
+	numFields := 2
+	poolBuf := bufpool.Get(numFields * 32)
+	defer bufpool.Put(poolBuf)
+	hashBuf := poolBuf.B[:numFields*32]
+
+	// Hash each field
+
+	// Compute merkle root of all fields
+	if err := merkle_tree.ComputeMerkleRoot(hashBuf, hashBuf); err != nil {
+		return nil, err
+	}
+	copy(buf, hashBuf[:32])
+	return buf[:32], nil
+}
+
+// HashTreeRoot returns the SSZ hash tree root
+func (c *SignedBeaconBlockBellatrix) HashTreeRoot() ([32]byte, error) {
+	hash := [32]byte{}
+	_, err := c.HashSSZTo(hash[:])
+	return hash, err
+}
+
+// BeaconStateBellatrix is a variable-size SSZ container with the following layout:
+//
+// Fixed section layout:
+// [  0-  7]  genesisTime (uint64)
+// [  8- 39]  genesisValidatorsRoot (bytevector[32])
+// [ 40- 47]  slot (uint64)
+// [ 48- 63]  fork (ref: Fork)
+// [ 64-175]  latestBlockHeader (ref: BeaconBlockHeader)
+// [176-262319]  blockRoots (vector[8192] of bytevector[32])
+// [262320-524463]  stateRoots (vector[8192] of bytevector[32])
+// [524464-524535]  eth1Data (ref: Eth1Data)
+// [524536-524543]  eth1DepositIndex (uint64)
+// [524544-2621695]  randaoMixes (vector[65536] of bytevector[32])
+// [2621696-2687231]  slashings (vector[8192] of uint64)
+// [2687232]      justificationBits (bitvector[4])
+// [2687233-2687272]  previousJustifiedCheckpoint (ref: Checkpoint)
+// [2687273-2687312]  currentJustifiedCheckpoint (ref: Checkpoint)
+// [2687313-2687352]  finalizedCheckpoint (ref: Checkpoint)
+// [2687353-2711976]  currentSyncCommittee (ref: SyncCommittee)
+// [2711977-2736600]  nextSyncCommittee (ref: SyncCommittee)
+//
+// Offset fields (4 bytes each):
+// [2736601-2736604]  historicalRoots_offset (uint32)
+// [2736605-2736608]  eth1DataVotes_offset (uint32)
+// [2736609-2736612]  validators_offset (uint32)
+// [2736613-2736616]  balances_offset (uint32)
+// [2736617-2736620]  previousEpochParticipation_offset (uint32)
+// [2736621-2736624]  currentEpochParticipation_offset (uint32)
+// [2736625-2736628]  inactivityScores_offset (uint32)
+// [2736629-2736632]  latestExecutionPayloadHeader_offset (uint32)
+//
+// Total fixed section: 2736633 bytes
+//
+// Variable fields (stored after fixed section):
+// - historicalRoots ([]bytevector[32], limit 0)
+// - eth1DataVotes ([]ref: Eth1Data, limit 0)
+// - validators ([]ref: Validator, limit 0)
+// - balances ([]uint64, limit 0)
+// - previousEpochParticipation ([]uint8, limit 0)
+// - currentEpochParticipation ([]uint8, limit 0)
+// - inactivityScores ([]uint64, limit 0)
+// - latestExecutionPayloadHeader (ref (variable))
+type BeaconStateBellatrix struct {
+	// Fixed-size section containing fixed fields and offsets
+	fixed [2736633]byte
+
+	// Variable-size fields
+	historicalRoots              [][32]byte
+	eth1DataVotes                []Eth1Data
+	validators                   []Validator
+	balances                     []uint64
+	previousEpochParticipation   []byte
+	currentEpochParticipation    []byte
+	inactivityScores             []uint64
+	latestExecutionPayloadHeader *ExecutionPayloadHeader
+}
+
+// NewBeaconStateBellatrix creates a new BeaconStateBellatrix
+func NewBeaconStateBellatrix() *BeaconStateBellatrix {
+	return &BeaconStateBellatrix{}
+}
+
+// Fixed returns false as this container has variable-size fields
+func (c *BeaconStateBellatrix) Fixed() bool {
+	return false
+}
+
+// GenesisTime returns the genesisTime field
+func (c *BeaconStateBellatrix) GenesisTime() uint64 {
+	return binary.LittleEndian.Uint64(c.fixed[0:8])
+}
+
+// SetGenesisTime sets the genesisTime field
+func (c *BeaconStateBellatrix) SetGenesisTime(v uint64) {
+	binary.LittleEndian.PutUint64(c.fixed[0:8], v)
+}
+
+// Slot returns the slot field
+func (c *BeaconStateBellatrix) Slot() uint64 {
+	return binary.LittleEndian.Uint64(c.fixed[40:48])
+}
+
+// SetSlot sets the slot field
+func (c *BeaconStateBellatrix) SetSlot(v uint64) {
+	binary.LittleEndian.PutUint64(c.fixed[40:48], v)
+}
+
+// Eth1DepositIndex returns the eth1DepositIndex field
+func (c *BeaconStateBellatrix) Eth1DepositIndex() uint64 {
+	return binary.LittleEndian.Uint64(c.fixed[524536:524544])
+}
+
+// SetEth1DepositIndex sets the eth1DepositIndex field
+func (c *BeaconStateBellatrix) SetEth1DepositIndex(v uint64) {
+	binary.LittleEndian.PutUint64(c.fixed[524536:524544], v)
+}
+
+// getHistoricalRootsOffset returns the offset for the historicalRoots field
+func (c *BeaconStateBellatrix) getHistoricalRootsOffset() uint32 {
+	return binary.LittleEndian.Uint32(c.fixed[2736601:2736605])
+}
+
+// setHistoricalRootsOffset sets the offset for the historicalRoots field
+func (c *BeaconStateBellatrix) setHistoricalRootsOffset(offset uint32) {
+	binary.LittleEndian.PutUint32(c.fixed[2736601:2736605], offset)
+}
+
+// getEth1DataVotesOffset returns the offset for the eth1DataVotes field
+func (c *BeaconStateBellatrix) getEth1DataVotesOffset() uint32 {
+	return binary.LittleEndian.Uint32(c.fixed[2736605:2736609])
+}
+
+// setEth1DataVotesOffset sets the offset for the eth1DataVotes field
+func (c *BeaconStateBellatrix) setEth1DataVotesOffset(offset uint32) {
+	binary.LittleEndian.PutUint32(c.fixed[2736605:2736609], offset)
+}
+
+// getValidatorsOffset returns the offset for the validators field
+func (c *BeaconStateBellatrix) getValidatorsOffset() uint32 {
+	return binary.LittleEndian.Uint32(c.fixed[2736609:2736613])
+}
+
+// setValidatorsOffset sets the offset for the validators field
+func (c *BeaconStateBellatrix) setValidatorsOffset(offset uint32) {
+	binary.LittleEndian.PutUint32(c.fixed[2736609:2736613], offset)
+}
+
+// getBalancesOffset returns the offset for the balances field
+func (c *BeaconStateBellatrix) getBalancesOffset() uint32 {
+	return binary.LittleEndian.Uint32(c.fixed[2736613:2736617])
+}
+
+// setBalancesOffset sets the offset for the balances field
+func (c *BeaconStateBellatrix) setBalancesOffset(offset uint32) {
+	binary.LittleEndian.PutUint32(c.fixed[2736613:2736617], offset)
+}
+
+// getPreviousEpochParticipationOffset returns the offset for the previousEpochParticipation field
+func (c *BeaconStateBellatrix) getPreviousEpochParticipationOffset() uint32 {
+	return binary.LittleEndian.Uint32(c.fixed[2736617:2736621])
+}
+
+// setPreviousEpochParticipationOffset sets the offset for the previousEpochParticipation field
+func (c *BeaconStateBellatrix) setPreviousEpochParticipationOffset(offset uint32) {
+	binary.LittleEndian.PutUint32(c.fixed[2736617:2736621], offset)
+}
+
+// getCurrentEpochParticipationOffset returns the offset for the currentEpochParticipation field
+func (c *BeaconStateBellatrix) getCurrentEpochParticipationOffset() uint32 {
+	return binary.LittleEndian.Uint32(c.fixed[2736621:2736625])
+}
+
+// setCurrentEpochParticipationOffset sets the offset for the currentEpochParticipation field
+func (c *BeaconStateBellatrix) setCurrentEpochParticipationOffset(offset uint32) {
+	binary.LittleEndian.PutUint32(c.fixed[2736621:2736625], offset)
+}
+
+// getInactivityScoresOffset returns the offset for the inactivityScores field
+func (c *BeaconStateBellatrix) getInactivityScoresOffset() uint32 {
+	return binary.LittleEndian.Uint32(c.fixed[2736625:2736629])
+}
+
+// setInactivityScoresOffset sets the offset for the inactivityScores field
+func (c *BeaconStateBellatrix) setInactivityScoresOffset(offset uint32) {
+	binary.LittleEndian.PutUint32(c.fixed[2736625:2736629], offset)
+}
+
+// getLatestExecutionPayloadHeaderOffset returns the offset for the latestExecutionPayloadHeader field
+func (c *BeaconStateBellatrix) getLatestExecutionPayloadHeaderOffset() uint32 {
+	return binary.LittleEndian.Uint32(c.fixed[2736629:2736633])
+}
+
+// setLatestExecutionPayloadHeaderOffset sets the offset for the latestExecutionPayloadHeader field
+func (c *BeaconStateBellatrix) setLatestExecutionPayloadHeaderOffset(offset uint32) {
+	binary.LittleEndian.PutUint32(c.fixed[2736629:2736633], offset)
+}
+
+// HistoricalRoots returns the historicalRoots field
+func (c *BeaconStateBellatrix) HistoricalRoots() [][32]byte {
+	return c.historicalRoots
+}
+
+// SetHistoricalRoots sets the historicalRoots field and updates all affected offsets
+// This method automatically adjusts the offsets of subsequent variable fields
+func (c *BeaconStateBellatrix) SetHistoricalRoots(value [][32]byte) {
+	// Set the new value
+	c.historicalRoots = value
+
+	// Update this field's offset (first variable field)
+	c.setHistoricalRootsOffset(uint32(len(c.fixed)))
+
+	// Calculate the size difference
+	oldSize := 0
+	oldSize = len(c.historicalRoots) * 32
+
+	newSize := 0
+	newSize = len(value) * 32
+
+	// Set the new value
+	c.historicalRoots = value
+
+	// Update offsets of subsequent variable fields if size changed
+	if oldSize != newSize {
+		sizeDiff := newSize - oldSize
+
+		// Update offsets for all subsequent variable fields
+		{
+			c.setEth1DataVotesOffset(uint32(int(c.getEth1DataVotesOffset()) + sizeDiff))
+			c.setValidatorsOffset(uint32(int(c.getValidatorsOffset()) + sizeDiff))
+			c.setBalancesOffset(uint32(int(c.getBalancesOffset()) + sizeDiff))
+			c.setPreviousEpochParticipationOffset(uint32(int(c.getPreviousEpochParticipationOffset()) + sizeDiff))
+			c.setCurrentEpochParticipationOffset(uint32(int(c.getCurrentEpochParticipationOffset()) + sizeDiff))
+			c.setInactivityScoresOffset(uint32(int(c.getInactivityScoresOffset()) + sizeDiff))
+			c.setLatestExecutionPayloadHeaderOffset(uint32(int(c.getLatestExecutionPayloadHeaderOffset()) + sizeDiff))
+		}
+	}
+}
+
+// Eth1DataVotes returns the eth1DataVotes field
+func (c *BeaconStateBellatrix) Eth1DataVotes() []Eth1Data {
+	return c.eth1DataVotes
+}
+
+// SetEth1DataVotes sets the eth1DataVotes field and updates all affected offsets
+// This method automatically adjusts the offsets of subsequent variable fields
+func (c *BeaconStateBellatrix) SetEth1DataVotes(value []Eth1Data) {
+	// Set the new value
+	c.eth1DataVotes = value
+
+	// Calculate the size difference
+	oldSize := 0
+	oldSize = len(c.eth1DataVotes) * 72
+
+	newSize := 0
+	newSize = len(value) * 72
+
+	// Set the new value
+	c.eth1DataVotes = value
+
+	// Update offsets of subsequent variable fields if size changed
+	if oldSize != newSize {
+		sizeDiff := newSize - oldSize
+
+		// Update offsets for all subsequent variable fields
+		{
+			c.setValidatorsOffset(uint32(int(c.getValidatorsOffset()) + sizeDiff))
+			c.setBalancesOffset(uint32(int(c.getBalancesOffset()) + sizeDiff))
+			c.setPreviousEpochParticipationOffset(uint32(int(c.getPreviousEpochParticipationOffset()) + sizeDiff))
+			c.setCurrentEpochParticipationOffset(uint32(int(c.getCurrentEpochParticipationOffset()) + sizeDiff))
+			c.setInactivityScoresOffset(uint32(int(c.getInactivityScoresOffset()) + sizeDiff))
+			c.setLatestExecutionPayloadHeaderOffset(uint32(int(c.getLatestExecutionPayloadHeaderOffset()) + sizeDiff))
+		}
+	}
+}
+
+// Validators returns the validators field
+func (c *BeaconStateBellatrix) Validators() []Validator {
+	return c.validators
+}
+
+// SetValidators sets the validators field and updates all affected offsets
+// This method automatically adjusts the offsets of subsequent variable fields
+func (c *BeaconStateBellatrix) SetValidators(value []Validator) {
+	// Set the new value
+	c.validators = value
+
+	// Calculate the size difference
+	oldSize := 0
+	oldSize = len(c.validators) * 121
+
+	newSize := 0
+	newSize = len(value) * 121
+
+	// Set the new value
+	c.validators = value
+
+	// Update offsets of subsequent variable fields if size changed
+	if oldSize != newSize {
+		sizeDiff := newSize - oldSize
+
+		// Update offsets for all subsequent variable fields
+		{
+			c.setBalancesOffset(uint32(int(c.getBalancesOffset()) + sizeDiff))
+			c.setPreviousEpochParticipationOffset(uint32(int(c.getPreviousEpochParticipationOffset()) + sizeDiff))
+			c.setCurrentEpochParticipationOffset(uint32(int(c.getCurrentEpochParticipationOffset()) + sizeDiff))
+			c.setInactivityScoresOffset(uint32(int(c.getInactivityScoresOffset()) + sizeDiff))
+			c.setLatestExecutionPayloadHeaderOffset(uint32(int(c.getLatestExecutionPayloadHeaderOffset()) + sizeDiff))
+		}
+	}
+}
+
+// Balances returns the balances field
+func (c *BeaconStateBellatrix) Balances() []uint64 {
+	return c.balances
+}
+
+// SetBalances sets the balances field and updates all affected offsets
+// This method automatically adjusts the offsets of subsequent variable fields
+func (c *BeaconStateBellatrix) SetBalances(value []uint64) {
+	// Set the new value
+	c.balances = value
+
+	// Calculate the size difference
+	oldSize := 0
+	oldSize = len(c.balances) * 8
+
+	newSize := 0
+	newSize = len(value) * 8
+
+	// Set the new value
+	c.balances = value
+
+	// Update offsets of subsequent variable fields if size changed
+	if oldSize != newSize {
+		sizeDiff := newSize - oldSize
+
+		// Update offsets for all subsequent variable fields
+		{
+			c.setPreviousEpochParticipationOffset(uint32(int(c.getPreviousEpochParticipationOffset()) + sizeDiff))
+			c.setCurrentEpochParticipationOffset(uint32(int(c.getCurrentEpochParticipationOffset()) + sizeDiff))
+			c.setInactivityScoresOffset(uint32(int(c.getInactivityScoresOffset()) + sizeDiff))
+			c.setLatestExecutionPayloadHeaderOffset(uint32(int(c.getLatestExecutionPayloadHeaderOffset()) + sizeDiff))
+		}
+	}
+}
+
+// PreviousEpochParticipation returns the previousEpochParticipation field
+func (c *BeaconStateBellatrix) PreviousEpochParticipation() []byte {
+	return c.previousEpochParticipation
+}
+
+// SetPreviousEpochParticipation sets the previousEpochParticipation field and updates all affected offsets
+// This method automatically adjusts the offsets of subsequent variable fields
+func (c *BeaconStateBellatrix) SetPreviousEpochParticipation(value []byte) {
+	// Set the new value
+	c.previousEpochParticipation = value
+
+	// Calculate the size difference
+	oldSize := 0
+	oldSize = len(c.previousEpochParticipation)
+
+	newSize := 0
+	newSize = len(value)
+
+	// Set the new value
+	c.previousEpochParticipation = value
+
+	// Update offsets of subsequent variable fields if size changed
+	if oldSize != newSize {
+		sizeDiff := newSize - oldSize
+
+		// Update offsets for all subsequent variable fields
+		{
+			c.setCurrentEpochParticipationOffset(uint32(int(c.getCurrentEpochParticipationOffset()) + sizeDiff))
+			c.setInactivityScoresOffset(uint32(int(c.getInactivityScoresOffset()) + sizeDiff))
+			c.setLatestExecutionPayloadHeaderOffset(uint32(int(c.getLatestExecutionPayloadHeaderOffset()) + sizeDiff))
+		}
+	}
+}
+
+// CurrentEpochParticipation returns the currentEpochParticipation field
+func (c *BeaconStateBellatrix) CurrentEpochParticipation() []byte {
+	return c.currentEpochParticipation
+}
+
+// SetCurrentEpochParticipation sets the currentEpochParticipation field and updates all affected offsets
+// This method automatically adjusts the offsets of subsequent variable fields
+func (c *BeaconStateBellatrix) SetCurrentEpochParticipation(value []byte) {
+	// Set the new value
+	c.currentEpochParticipation = value
+
+	// Calculate the size difference
+	oldSize := 0
+	oldSize = len(c.currentEpochParticipation)
+
+	newSize := 0
+	newSize = len(value)
+
+	// Set the new value
+	c.currentEpochParticipation = value
+
+	// Update offsets of subsequent variable fields if size changed
+	if oldSize != newSize {
+		sizeDiff := newSize - oldSize
+
+		// Update offsets for all subsequent variable fields
+		{
+			c.setInactivityScoresOffset(uint32(int(c.getInactivityScoresOffset()) + sizeDiff))
+			c.setLatestExecutionPayloadHeaderOffset(uint32(int(c.getLatestExecutionPayloadHeaderOffset()) + sizeDiff))
+		}
+	}
+}
+
+// InactivityScores returns the inactivityScores field
+func (c *BeaconStateBellatrix) InactivityScores() []uint64 {
+	return c.inactivityScores
+}
+
+// SetInactivityScores sets the inactivityScores field and updates all affected offsets
+// This method automatically adjusts the offsets of subsequent variable fields
+func (c *BeaconStateBellatrix) SetInactivityScores(value []uint64) {
+	// Set the new value
+	c.inactivityScores = value
+
+	// Calculate the size difference
+	oldSize := 0
+	oldSize = len(c.inactivityScores) * 8
+
+	newSize := 0
+	newSize = len(value) * 8
+
+	// Set the new value
+	c.inactivityScores = value
+
+	// Update offsets of subsequent variable fields if size changed
+	if oldSize != newSize {
+		sizeDiff := newSize - oldSize
+
+		// Update offsets for all subsequent variable fields
+		{
+			c.setLatestExecutionPayloadHeaderOffset(uint32(int(c.getLatestExecutionPayloadHeaderOffset()) + sizeDiff))
+		}
+	}
+}
+
+// LatestExecutionPayloadHeader returns the latestExecutionPayloadHeader field
+func (c *BeaconStateBellatrix) LatestExecutionPayloadHeader() *ExecutionPayloadHeader {
+	return c.latestExecutionPayloadHeader
+}
+
+// SetLatestExecutionPayloadHeader sets the latestExecutionPayloadHeader field and updates all affected offsets
+// This method automatically adjusts the offsets of subsequent variable fields
+func (c *BeaconStateBellatrix) SetLatestExecutionPayloadHeader(value *ExecutionPayloadHeader) {
+	// Set the new value
+	c.latestExecutionPayloadHeader = value
+
+	// No subsequent fields to update offsets
+}
+
+// SSZSize returns the total size when serialized
+func (c *BeaconStateBellatrix) SSZSize() int {
+	// Fixed section size
+	size := len(c.fixed)
+
+	// Add sizes of variable fields
+	for _, elem := range c.historicalRoots {
+		size += elem.SSZSize()
+	}
+	size += len(c.eth1DataVotes) * 72
+	size += len(c.validators) * 121
+	size += len(c.balances) * 8
+	size += len(c.previousEpochParticipation)
+	size += len(c.currentEpochParticipation)
+	size += len(c.inactivityScores) * 8
+	size += c.latestExecutionPayloadHeader.SSZSize()
+	return size
+}
+
+// MarshalSSZ marshals the container to SSZ format
+func (c *BeaconStateBellatrix) MarshalSSZ() ([]byte, error) {
+	buf := make([]byte, c.SSZSize())
+	_, err := c.MarshalSSZTo(buf)
+	return buf, err
+}
+
+// MarshalSSZTo marshals the container to the provided buffer
+func (c *BeaconStateBellatrix) MarshalSSZTo(buf []byte) ([]byte, error) {
+	// Check buffer size
+	if len(buf) < c.SSZSize() {
+		return nil, fmt.Errorf("buffer too small: expected at least %d bytes, got %d", c.SSZSize(), len(buf))
+	}
+
+	// Initialize offset tracking
+	currentOffset := uint32(len(c.fixed))
+
+	// Set offset for historicalRoots
+	c.setHistoricalRootsOffset(currentOffset)
+
+	// Marshal historicalRoots elements (variable size)
+	for _, elem := range c.historicalRoots {
+		{
+			_, err := elem.MarshalSSZTo(buf[currentOffset:])
+			if err != nil {
+				return nil, err
+			}
+			currentOffset += uint32(elem.SSZSize())
+		}
+	}
+
+	// Set offset for eth1DataVotes
+	c.setEth1DataVotesOffset(currentOffset)
+
+	// Marshal eth1DataVotes elements (fixed refs)
+	for _, elem := range c.eth1DataVotes {
+		copy(buf[currentOffset:], elem)
+		currentOffset += uint32(len(elem))
+	}
+
+	// Set offset for validators
+	c.setValidatorsOffset(currentOffset)
+
+	// Marshal validators elements (fixed refs)
+	for _, elem := range c.validators {
+		copy(buf[currentOffset:], elem)
+		currentOffset += uint32(len(elem))
+	}
+
+	// Set offset for balances
+	c.setBalancesOffset(currentOffset)
+
+	// Marshal balances elements
+	for _, v := range c.balances {
+		binary.LittleEndian.PutUint64(buf[currentOffset:currentOffset+8], v)
+		currentOffset += 8
+	}
+
+	// Set offset for previousEpochParticipation
+	c.setPreviousEpochParticipationOffset(currentOffset)
+
+	// Copy previousEpochParticipation data
+	copy(buf[currentOffset:], c.previousEpochParticipation)
+	currentOffset += uint32(len(c.previousEpochParticipation))
+
+	// Set offset for currentEpochParticipation
+	c.setCurrentEpochParticipationOffset(currentOffset)
+
+	// Copy currentEpochParticipation data
+	copy(buf[currentOffset:], c.currentEpochParticipation)
+	currentOffset += uint32(len(c.currentEpochParticipation))
+
+	// Set offset for inactivityScores
+	c.setInactivityScoresOffset(currentOffset)
+
+	// Marshal inactivityScores elements
+	for _, v := range c.inactivityScores {
+		binary.LittleEndian.PutUint64(buf[currentOffset:currentOffset+8], v)
+		currentOffset += 8
+	}
+
+	// Set offset for latestExecutionPayloadHeader
+	c.setLatestExecutionPayloadHeaderOffset(currentOffset)
+
+	// Marshal latestExecutionPayloadHeader (variable ref)
+	{
+		_, err := c.latestExecutionPayloadHeader.MarshalSSZTo(buf[currentOffset:])
+		if err != nil {
+			return nil, err
+		}
+		currentOffset += uint32(c.latestExecutionPayloadHeader.SSZSize())
+	}
+
+	// Copy fixed section (with updated offsets)
+	copy(buf[:len(c.fixed)], c.fixed[:])
+	return buf, nil
+}
+
+// UnmarshalSSZ unmarshals the container from SSZ format
+func (c *BeaconStateBellatrix) UnmarshalSSZ(buf []byte) error {
+	// Check minimum size
+	if len(buf) < 2736633 {
+		return fmt.Errorf("buffer too small: expected at least %d bytes for fixed section, got %d", 2736633, len(buf))
+	}
+
+	// Copy fixed section
+	copy(c.fixed[:], buf[:2736633])
+
+	// Unmarshal variable fields
+	// Get boundaries for historicalRoots
+	start0 := c.getHistoricalRootsOffset()
+	end0 := c.getEth1DataVotesOffset()
+
+	if start0 > end0 || end0 > uint32(len(buf)) {
+		return fmt.Errorf("invalid offsets for field historicalRoots: start=%d, end=%d, buflen=%d", start0, end0, len(buf))
+	}
+	// TODO: Unmarshal historicalRoots with element type vector
+
+	// Get boundaries for eth1DataVotes
+	start1 := c.getEth1DataVotesOffset()
+	end1 := c.getValidatorsOffset()
+
+	if start1 > end1 || end1 > uint32(len(buf)) {
+		return fmt.Errorf("invalid offsets for field eth1DataVotes: start=%d, end=%d, buflen=%d", start1, end1, len(buf))
+	}
+	// TODO: Unmarshal eth1DataVotes with element type ref
+
+	// Get boundaries for validators
+	start2 := c.getValidatorsOffset()
+	end2 := c.getBalancesOffset()
+
+	if start2 > end2 || end2 > uint32(len(buf)) {
+		return fmt.Errorf("invalid offsets for field validators: start=%d, end=%d, buflen=%d", start2, end2, len(buf))
+	}
+	// TODO: Unmarshal validators with element type ref
+
+	// Get boundaries for balances
+	start3 := c.getBalancesOffset()
+	end3 := c.getPreviousEpochParticipationOffset()
+
+	if start3 > end3 || end3 > uint32(len(buf)) {
+		return fmt.Errorf("invalid offsets for field balances: start=%d, end=%d, buflen=%d", start3, end3, len(buf))
+	}
+	// Unmarshal balances elements
+	numElems3 := (end3 - start3) / 8
+	c.balances = make([]uint64, numElems3)
+	for j := uint32(0); j < numElems3; j++ {
+		offset := start3 + j*8
+		c.balances[j] = binary.LittleEndian.Uint64(buf[offset : offset+8])
+	}
+
+	// Get boundaries for previousEpochParticipation
+	start4 := c.getPreviousEpochParticipationOffset()
+	end4 := c.getCurrentEpochParticipationOffset()
+
+	if start4 > end4 || end4 > uint32(len(buf)) {
+		return fmt.Errorf("invalid offsets for field previousEpochParticipation: start=%d, end=%d, buflen=%d", start4, end4, len(buf))
+	}
+	c.previousEpochParticipation = make([]byte, end4-start4)
+	copy(c.previousEpochParticipation, buf[start4:end4])
+
+	// Get boundaries for currentEpochParticipation
+	start5 := c.getCurrentEpochParticipationOffset()
+	end5 := c.getInactivityScoresOffset()
+
+	if start5 > end5 || end5 > uint32(len(buf)) {
+		return fmt.Errorf("invalid offsets for field currentEpochParticipation: start=%d, end=%d, buflen=%d", start5, end5, len(buf))
+	}
+	c.currentEpochParticipation = make([]byte, end5-start5)
+	copy(c.currentEpochParticipation, buf[start5:end5])
+
+	// Get boundaries for inactivityScores
+	start6 := c.getInactivityScoresOffset()
+	end6 := c.getLatestExecutionPayloadHeaderOffset()
+
+	if start6 > end6 || end6 > uint32(len(buf)) {
+		return fmt.Errorf("invalid offsets for field inactivityScores: start=%d, end=%d, buflen=%d", start6, end6, len(buf))
+	}
+	// Unmarshal inactivityScores elements
+	numElems6 := (end6 - start6) / 8
+	c.inactivityScores = make([]uint64, numElems6)
+	for j := uint32(0); j < numElems6; j++ {
+		offset := start6 + j*8
+		c.inactivityScores[j] = binary.LittleEndian.Uint64(buf[offset : offset+8])
+	}
+
+	// Get boundaries for latestExecutionPayloadHeader
+	start7 := c.getLatestExecutionPayloadHeaderOffset()
+	end7 := uint32(len(buf))
+
+	if start7 > end7 || end7 > uint32(len(buf)) {
+		return fmt.Errorf("invalid offsets for field latestExecutionPayloadHeader: start=%d, end=%d, buflen=%d", start7, end7, len(buf))
+	}
+	// Unmarshal latestExecutionPayloadHeader (variable ref)
+	c.latestExecutionPayloadHeader = new(ExecutionPayloadHeader)
+	if err := c.latestExecutionPayloadHeader.UnmarshalSSZ(buf[start7:end7]); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// HashSSZTo computes the SSZ hash of the container
+func (c *BeaconStateBellatrix) HashSSZTo(buf []byte) ([]byte, error) {
+	// Ensure buffer has at least 32 bytes
+	if len(buf) < 32 {
+		return nil, fmt.Errorf("buffer too small: need at least 32 bytes, got %d", len(buf))
+	}
+
+	// Get buffer for field hashes
+	numFields := 25
+	poolBuf := bufpool.Get(numFields * 32)
+	defer bufpool.Put(poolBuf)
+	hashBuf := poolBuf.B[:numFields*32]
+
+	// Hash each field
+
+	// Hash genesisTime (8 bytes) - field 0
+	copy(hashBuf[0:8], c.fixed[0:8])
+	for i := 8; i < 32; i++ {
+		hashBuf[0+i] = 0
+	}
+
+	// Hash slot (8 bytes) - field 2
+	copy(hashBuf[64:72], c.fixed[40:48])
+	for i := 8; i < 32; i++ {
+		hashBuf[64+i] = 0
+	}
+
+	// Hash eth1DepositIndex (8 bytes) - field 8
+	copy(hashBuf[256:264], c.fixed[524536:524544])
+	for i := 8; i < 32; i++ {
+		hashBuf[256+i] = 0
+	}
+
+	// Hash historicalRoots (variable field) - field 17
+	{
+		{
+			// TODO: Implement proper hashing for variable field
+			// For now, just fill with zeros
+			for i := 0; i < 32; i++ {
+				hashBuf[544+i] = 0
+			}
+		}
+	}
+
+	// Hash eth1DataVotes (variable field) - field 18
+	{
+		{
+			// TODO: Implement proper hashing for variable field
+			// For now, just fill with zeros
+			for i := 0; i < 32; i++ {
+				hashBuf[576+i] = 0
+			}
+		}
+	}
+
+	// Hash validators (variable field) - field 19
+	{
+		{
+			// TODO: Implement proper hashing for variable field
+			// For now, just fill with zeros
+			for i := 0; i < 32; i++ {
+				hashBuf[608+i] = 0
+			}
+		}
+	}
+
+	// Hash balances (variable field) - field 20
+	{
+		{
+			// TODO: Implement proper hashing for variable field
+			// For now, just fill with zeros
+			for i := 0; i < 32; i++ {
+				hashBuf[640+i] = 0
+			}
+		}
+	}
+
+	// Hash previousEpochParticipation (variable field) - field 21
+	{
+		{
+			// TODO: Implement proper hashing for variable field
+			// For now, just fill with zeros
+			for i := 0; i < 32; i++ {
+				hashBuf[672+i] = 0
+			}
+		}
+	}
+
+	// Hash currentEpochParticipation (variable field) - field 22
+	{
+		{
+			// TODO: Implement proper hashing for variable field
+			// For now, just fill with zeros
+			for i := 0; i < 32; i++ {
+				hashBuf[704+i] = 0
+			}
+		}
+	}
+
+	// Hash inactivityScores (variable field) - field 23
+	{
+		{
+			// TODO: Implement proper hashing for variable field
+			// For now, just fill with zeros
+			for i := 0; i < 32; i++ {
+				hashBuf[736+i] = 0
+			}
+		}
+	}
+
+	// Compute merkle root of all fields
+	if err := merkle_tree.ComputeMerkleRoot(hashBuf, hashBuf); err != nil {
+		return nil, err
+	}
+	copy(buf, hashBuf[:32])
+	return buf[:32], nil
+}
+
+// HashTreeRoot returns the SSZ hash tree root
+func (c *BeaconStateBellatrix) HashTreeRoot() ([32]byte, error) {
+	hash := [32]byte{}
+	_, err := c.HashSSZTo(hash[:])
+	return hash, err
 }

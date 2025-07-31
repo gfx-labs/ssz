@@ -208,15 +208,19 @@ func encodeVariableField(b *Builder, v reflect.Value, tag *sszTag) error {
 		b.EncodeString(v.String())
 	case reflect.Slice:
 		// Check limit if specified
-		if tag.MaxList > 0 && v.Len() > tag.MaxList {
-			return fmt.Errorf("slice length %d exceeds limit %d", v.Len(), tag.MaxList)
+		if len(tag.MaxList) > 0 && v.Len() > tag.MaxList[0] {
+			return fmt.Errorf("slice length %d exceeds limit %d", v.Len(), tag.MaxList[0])
 		}
 		
 		if v.Type().Elem().Kind() == reflect.Uint8 {
 			// Byte slice - check if it's a bitlist
 			if tag.FieldType == "bitlist" {
 				// Encode as bitlist with delimiter bit
-				encoded, err := EncodeBitList(v.Bytes(), tag.MaxList)
+				maxBits := 0
+				if len(tag.MaxList) > 0 {
+					maxBits = tag.MaxList[0]
+				}
+				encoded, err := EncodeBitList(v.Bytes(), maxBits)
 				if err != nil {
 					return fmt.Errorf("error encoding bitlist: %w", err)
 				}

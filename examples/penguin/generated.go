@@ -110,10 +110,9 @@ func (s Penguin) HashSSZTo(buf []byte) ([]byte, error) {
 		return nil, fmt.Errorf("buffer too small: need at least 32 bytes, got %d", len(buf))
 	}
 	// Get hash buffer from pool
-	numFields := 5
-	poolBuf := bufpool.Get(numFields * 32)
+	poolBuf := bufpool.Get(5 * 32)
 	defer bufpool.Put(poolBuf)
-	hashBuffer := poolBuf.B[:numFields*32]
+	hashBuffer := poolBuf.B[:5*32]
 	// Fill the hash buffer with field hashes
 	if err := s.FillHashBuffer(hashBuffer); err != nil {
 		return nil, err
@@ -270,10 +269,9 @@ func (s Identity) HashSSZTo(buf []byte) ([]byte, error) {
 		return nil, fmt.Errorf("buffer too small: need at least 32 bytes, got %d", len(buf))
 	}
 	// Get hash buffer from pool
-	numFields := 2
-	poolBuf := bufpool.Get(numFields * 32)
+	poolBuf := bufpool.Get(2 * 32)
 	defer bufpool.Put(poolBuf)
-	hashBuffer := poolBuf.B[:numFields*32]
+	hashBuffer := poolBuf.B[:2*32]
 	// Fill the hash buffer with field hashes
 	if err := s.FillHashBuffer(hashBuffer); err != nil {
 		return nil, err

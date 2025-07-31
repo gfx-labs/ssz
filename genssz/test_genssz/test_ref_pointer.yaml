@@ -1,0 +1,21 @@
+---
+package: testrefpointer
+
+structs:
+  - name: Inner
+    type: container
+    children:
+      - name: value
+        type: uint64
+      - name: data
+        type: bytes
+        limit: 256
+        
+  - name: Outer
+    type: container  
+    children:
+      - name: id
+        type: uint32
+      - name: inner_ref
+        type: ref
+        ref: Inner

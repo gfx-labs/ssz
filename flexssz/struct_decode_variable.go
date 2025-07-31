@@ -80,8 +80,8 @@ func decodeByteSlice(d *Decoder, v reflect.Value, fieldInfo *FieldInfo) error {
 
 	// Check limit if specified
 	tag := fieldInfo.Type.Tag
-	if tag != nil && tag.MaxList > 0 && len(bytes) > tag.MaxList {
-		return fmt.Errorf("slice length %d exceeds limit %d", len(bytes), tag.MaxList)
+	if tag != nil && len(tag.MaxList) > 0 && len(bytes) > tag.MaxList[0] {
+		return fmt.Errorf("slice length %d exceeds limit %d", len(bytes), tag.MaxList[0])
 	}
 
 	v.SetBytes(bytes)
@@ -160,8 +160,8 @@ func decodeVariableElementSlice(d *Decoder, v reflect.Value, fieldInfo *FieldInf
 
 	// Check limit
 	tag := fieldInfo.Type.Tag
-	if tag != nil && tag.MaxList > 0 && numElements > tag.MaxList {
-		return fmt.Errorf("slice length %d exceeds limit %d", numElements, tag.MaxList)
+	if tag != nil && len(tag.MaxList) > 0 && numElements > tag.MaxList[0] {
+		return fmt.Errorf("slice length %d exceeds limit %d", numElements, tag.MaxList[0])
 	}
 
 	// Create slice
@@ -217,8 +217,8 @@ func decodeFixedElementSlice(d *Decoder, v reflect.Value, fieldInfo *FieldInfo, 
 
 	// Check limit
 	tag := fieldInfo.Type.Tag
-	if tag != nil && tag.MaxList > 0 && numElements > tag.MaxList {
-		return fmt.Errorf("slice length %d exceeds limit %d", numElements, tag.MaxList)
+	if tag != nil && len(tag.MaxList) > 0 && numElements > tag.MaxList[0] {
+		return fmt.Errorf("slice length %d exceeds limit %d", numElements, tag.MaxList[0])
 	}
 
 	// Create slice
@@ -255,8 +255,8 @@ func decodeBitList(d *Decoder, v reflect.Value, fieldInfo *FieldInfo) error {
 
 	tag := fieldInfo.Type.Tag
 	maxBits := 0
-	if tag != nil {
-		maxBits = tag.MaxList
+	if tag != nil && len(tag.MaxList) > 0 {
+		maxBits = tag.MaxList[0]
 	}
 
 	// Decode bitlist (remove delimiter bit)

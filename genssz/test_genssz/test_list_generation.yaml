@@ -1,0 +1,22 @@
+package: testlist
+structs:
+  - name: MyUint32List
+    type: list
+    limit: 10
+    children:
+      - type: uint32
+  
+  - name: FixedItem
+    type: container
+    children:
+      - name: value
+        type: uint64
+      - name: index
+        type: uint32
+  
+  - name: MyFixedItemList
+    type: list
+    limit: 5
+    children:
+      - type: ref
+        ref: FixedItem

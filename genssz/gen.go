@@ -16,7 +16,7 @@ type Field struct {
 	Children []Field       `yaml:"children,omitempty"`
 }
 
-// ToSSZField converts Field to ssz.Field, handling bytevector alias
+// ToSSZField converts Field to ssz.Field, handling bytevector and bytes aliases
 func (f Field) ToSSZField() ssz.Field {
 	// Handle bytevector alias - convert to vector of uint8
 	if f.Type == "bytevector" {
@@ -24,6 +24,21 @@ func (f Field) ToSSZField() ssz.Field {
 			Name: f.Name,
 			Type: ssz.TypeVector,
 			Size: f.Size,
+			Children: []ssz.Field{
+				{
+					Name: "element",
+					Type: ssz.TypeUint8,
+				},
+			},
+		}
+	}
+	
+	// Handle bytes alias - convert to list of uint8
+	if f.Type == "bytes" {
+		return ssz.Field{
+			Name: f.Name,
+			Type: ssz.TypeList,
+			Limit: f.Limit,
 			Children: []ssz.Field{
 				{
 					Name: "element",

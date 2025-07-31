@@ -21,7 +21,7 @@ type sszTag struct {
 	Skip       bool   // "-" tag means skip this field
 	FieldType  string // "uint8", "uint16", "uint32", "uint64", "bool", "vector", "list", "container", "string", "bitlist", "bitvector"
 	IsVariable bool   // Whether this field is variable-size (strings, slices)
-	MaxList    int    // For variable-size lists: ssz-max:"1024"
+	MaxList    []int  // For variable-size lists: ssz-max:"1024" or "10,10" for multi-dimensional
 	Size       []int  // For fixed-size arrays: ssz-size:"32" or "8192,32" for multi-dimensional
 }
 
@@ -98,16 +98,23 @@ func parseSSZTags(field reflect.StructField) (*sszTag, error) {
 
 	// Parse ssz-max tag for variable-size lists
 	if maxStr := field.Tag.Get("ssz-max"); maxStr != "" {
-		// Handle special case "?" which means no limit
-		if maxStr == "?" {
-			tag.MaxList = 0 // 0 means no limit in our implementation
-		} else {
-			max, err := strconv.Atoi(maxStr)
-			if err != nil {
-				return nil, fmt.Errorf("invalid ssz-max value: %v", err)
+		// Handle multi-dimensional max values like "10" or "10,10"
+		parts := strings.Split(maxStr, ",")
+		maxList := make([]int, len(parts))
+		for i, part := range parts {
+			trimmed := strings.TrimSpace(part)
+			if trimmed == "?" {
+				// "?" means no limit, use 0 as a marker
+				maxList[i] = 0
+			} else {
+				max, err := strconv.Atoi(trimmed)
+				if err != nil {
+					return nil, fmt.Errorf("invalid ssz-max value: %v", err)
+				}
+				maxList[i] = max
 			}
-			tag.MaxList = max
 		}
+		tag.MaxList = maxList
 		tag.IsVariable = true
 
 		// Don't auto-set field type for slices with ssz-max
@@ -133,7 +140,7 @@ func parseSSZTags(field reflect.StructField) (*sszTag, error) {
 			break
 		}
 	}
-	if len(tag.Size) > 0 && tag.MaxList > 0 && !hasVariableSize {
+	if len(tag.Size) > 0 && len(tag.MaxList) > 0 && !hasVariableSize {
 		return nil, fmt.Errorf("field %s: cannot use both ssz-size and ssz-max tags unless ssz-size contains '?'", field.Name)
 	}
 
@@ -143,13 +150,13 @@ func parseSSZTags(field reflect.StructField) (*sszTag, error) {
 	}
 
 	// Validate ssz-max can only be used with slices
-	if tag.MaxList > 0 && field.Type.Kind() != reflect.Slice {
+	if len(tag.MaxList) > 0 && field.Type.Kind() != reflect.Slice {
 		return nil, fmt.Errorf("field %s: ssz-max tag can only be used with slice types, got %v", field.Name, field.Type)
 	}
 
 	// Validate that variable slices must have a limit
-	// Note: MaxList == 0 after parsing "?" means no limit, which is valid
-	if field.Type.Kind() == reflect.Slice && len(tag.Size) == 0 && tag.MaxList == 0 && field.Tag.Get("ssz-max") == "" {
+	// Note: MaxList[0] == 0 after parsing "?" means no limit, which is valid
+	if field.Type.Kind() == reflect.Slice && len(tag.Size) == 0 && len(tag.MaxList) == 0 && field.Tag.Get("ssz-max") == "" {
 		return nil, fmt.Errorf("field %s: slice types must have either ssz-size or ssz-max tag", field.Name)
 	}
 
@@ -313,7 +320,7 @@ func validateFieldType(field reflect.StructField, tag *sszTag) error {
 			return fmt.Errorf("field %s: ssz tag 'bitlist' requires []byte type, got %v", field.Name, t)
 		}
 		// bitlist requires ssz-max tag
-		if tag.MaxList == 0 && field.Tag.Get("ssz-max") == "" {
+		if len(tag.MaxList) == 0 && field.Tag.Get("ssz-max") == "" {
 			return fmt.Errorf("field %s: bitlist requires ssz-max tag", field.Name)
 		}
 	case "bitvector":
@@ -596,8 +603,8 @@ func parseTypeInfo(t reflect.Type, tag *sszTag) (*TypeInfo, error) {
 			// This is a list, use ssz-max for the max length
 			info.Type = ssz.TypeList
 			info.FixedSize = -1
-			if tag.MaxList > 0 {
-				info.Length = tag.MaxList // Max length from ssz-max
+			if len(tag.MaxList) > 0 {
+				info.Length = tag.MaxList[0] // Max length from ssz-max (first dimension)
 			}
 
 			// Get element type info with remaining size dimensions
@@ -614,17 +621,23 @@ func parseTypeInfo(t reflect.Type, tag *sszTag) (*TypeInfo, error) {
 			// Variable-size slice (list)
 			if tag != nil && tag.FieldType == "bitlist" {
 				info.Type = ssz.TypeBitList
-				info.BitLength = tag.MaxList
+				if len(tag.MaxList) > 0 {
+					info.BitLength = tag.MaxList[0] // For bitlist, only first dimension matters
+				}
 			} else {
 				info.Type = ssz.TypeList
 			}
 			info.FixedSize = -1
-			if tag != nil {
-				info.Length = tag.MaxList // Max length
+			if tag != nil && len(tag.MaxList) > 0 {
+				info.Length = tag.MaxList[0] // Max length (first dimension)
 			}
 
-			// Get element type info
-			elemInfo, err := GetTypeInfo(t.Elem(), nil)
+			// Get element type info with remaining max dimensions
+			elemTag := &sszTag{}
+			if tag != nil && len(tag.MaxList) > 1 {
+				elemTag.MaxList = tag.MaxList[1:]
+			}
+			elemInfo, err := GetTypeInfo(t.Elem(), elemTag)
 			if err != nil {
 				return nil, err
 			}

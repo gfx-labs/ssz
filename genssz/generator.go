@@ -34,7 +34,7 @@ func GenerateCode(world *World, schema *Schema) (*jen.File, error) {
 		}
 		
 		if !isFixed {
-			continue // Skip variable-size types
+			continue // Skip variable-size types (handled by list generator)
 		}
 		
 		// Generate the type definition with byte layout comment
@@ -53,6 +53,16 @@ func GenerateCode(world *World, schema *Schema) (*jen.File, error) {
 		if err := generateMethods(f, sszField, schema); err != nil {
 			return nil, fmt.Errorf("failed to generate methods for %s: %w", structDef.Name, err)
 		}
+	}
+	
+	// Generate list types
+	if err := GenerateListCode(world, schema, f); err != nil {
+		return nil, fmt.Errorf("failed to generate list code: %w", err)
+	}
+	
+	// Generate variable container types
+	if err := GenerateVariableContainerCode(world, schema, f); err != nil {
+		return nil, fmt.Errorf("failed to generate variable container code: %w", err)
 	}
 	
 	return f, nil
@@ -122,6 +132,11 @@ func getTypeDescription(field ssz.Field) string {
 		if len(field.Children) > 0 && field.Children[0].Type == ssz.TypeUint8 {
 			return fmt.Sprintf("bytevector[%d]", field.Size)
 		}
+		// For other vector types, show the element type
+		if len(field.Children) > 0 {
+			elemDesc := getTypeDescription(field.Children[0])
+			return fmt.Sprintf("vector[%d] of %s", field.Size, elemDesc)
+		}
 		return fmt.Sprintf("vector[%d]", field.Size)
 	case ssz.TypeRef:
 		return fmt.Sprintf("ref: %s", field.Ref)
@@ -190,8 +205,42 @@ func generateConstructor(f *jen.File, structDef ssz.Field, schema *Schema) error
 				size := int(field.Size)
 				params = append(params, jen.Id(paramName).Op("[").Lit(size).Op("]").Byte())
 				paramComments = append(paramComments, fmt.Sprintf("%s: bytevector[%d] value", paramName, size))
+			} else if len(field.Children) > 0 {
+				// Handle vectors of other types
+				elemType := field.Children[0]
+				size := int(field.Size)
+				switch elemType.Type {
+				case ssz.TypeUint16:
+					params = append(params, jen.Id(paramName).Op("[").Lit(size).Op("]").Uint16())
+					paramComments = append(paramComments, fmt.Sprintf("%s: vector[%d] of uint16", paramName, size))
+				case ssz.TypeUint32:
+					params = append(params, jen.Id(paramName).Op("[").Lit(size).Op("]").Uint32())
+					paramComments = append(paramComments, fmt.Sprintf("%s: vector[%d] of uint32", paramName, size))
+				case ssz.TypeUint64:
+					params = append(params, jen.Id(paramName).Op("[").Lit(size).Op("]").Uint64())
+					paramComments = append(paramComments, fmt.Sprintf("%s: vector[%d] of uint64", paramName, size))
+				case ssz.TypeRef:
+					params = append(params, jen.Id(paramName).Op("[").Lit(size).Op("]").Id(elemType.Ref))
+					paramComments = append(paramComments, fmt.Sprintf("%s: vector[%d] of %s", paramName, size, elemType.Ref))
+				case ssz.TypeVector:
+					// Handle vector of vectors
+					if len(elemType.Children) > 0 && elemType.Children[0].Type == ssz.TypeUint8 {
+						// Vector of bytevectors
+						innerSize := int(elemType.Size)
+						params = append(params, jen.Id(paramName).Op("[").Lit(size).Op("]").Op("[").Lit(innerSize).Op("]").Byte())
+						paramComments = append(paramComments, fmt.Sprintf("%s: vector[%d] of bytevector[%d]", paramName, size, innerSize))
+					} else {
+						// Vector of other vector types - not yet fully supported in constructor
+						params = append(params, jen.Id(paramName).Interface())
+						paramComments = append(paramComments, fmt.Sprintf("%s: vector[%d] of vector", paramName, size))
+					}
+				default:
+					// Fallback for unsupported types
+					params = append(params, jen.Id(paramName).Interface())
+					paramComments = append(paramComments, fmt.Sprintf("%s: vector[%d] value", paramName, size))
+				}
 			} else {
-				// Handle other vector types
+				// Handle vector with no element type specified
 				params = append(params, jen.Id(paramName).Interface())
 				paramComments = append(paramComments, fmt.Sprintf("%s: %s value", paramName, field.Type))
 			}
@@ -291,10 +340,9 @@ func generateMethods(f *jen.File, structDef ssz.Field, schema *Schema) error {
 			jen.Return(jen.Nil(), jen.Qual("fmt", "Errorf").Call(jen.Lit("buffer too small: need at least 32 bytes, got %d"), jen.Len(jen.Id("buf")))),
 		),
 		jen.Comment("Get hash buffer from pool"),
-		jen.Id("numFields").Op(":=").Lit(len(structDef.Children)),
-		jen.Id("poolBuf").Op(":=").Qual("github.com/gfx-labs/ssz/merkle_tree/bufpool", "Get").Call(jen.Id("numFields").Op("*").Lit(32)),
+		jen.Id("poolBuf").Op(":=").Qual("github.com/gfx-labs/ssz/merkle_tree/bufpool", "Get").Call(jen.Lit(len(structDef.Children)).Op("*").Lit(32)),
 		jen.Defer().Qual("github.com/gfx-labs/ssz/merkle_tree/bufpool", "Put").Call(jen.Id("poolBuf")),
-		jen.Id("hashBuffer").Op(":=").Id("poolBuf").Dot("B").Op("[:").Id("numFields").Op("*").Lit(32).Op("]"),
+		jen.Id("hashBuffer").Op(":=").Id("poolBuf").Dot("B").Op("[:").Lit(len(structDef.Children)).Op("*").Lit(32).Op("]"),
 		jen.Comment("Fill the hash buffer with field hashes"),
 		jen.If(jen.Err().Op(":=").Id("s").Dot("FillHashBuffer").Call(jen.Id("hashBuffer")), jen.Err().Op("!=").Nil()).Block(
 			jen.Return(jen.Nil(), jen.Err()),
@@ -328,6 +376,20 @@ func generateMethods(f *jen.File, structDef ssz.Field, schema *Schema) error {
 	for i, field := range structDef.Children {
 		if err := generateSetter(f, typeName, field, offsets[i], schema); err != nil {
 			return fmt.Errorf("failed to generate setter for %s: %w", field.Name, err)
+		}
+	}
+	
+	// Generate index-based accessor methods for vector fields
+	// Skip bytevectors (vectors of uint8) as they already have byte-level access
+	for i, field := range structDef.Children {
+		if field.Type == ssz.TypeVector {
+			// Skip if it's a bytevector
+			if len(field.Children) > 0 && field.Children[0].Type == ssz.TypeUint8 {
+				continue
+			}
+			if err := generateVectorIndexAccessors(f, typeName, field, offsets[i], schema); err != nil {
+				return fmt.Errorf("failed to generate vector index accessors for %s: %w", field.Name, err)
+			}
 		}
 	}
 	
@@ -472,8 +534,123 @@ func generateGetter(f *jen.File, typeName string, field ssz.Field, offset int, s
 					jen.Id("s").Index(jen.Lit(offset).Op(":").Lit(offset+size)),
 				)),
 			)
+		} else if len(field.Children) > 0 {
+			// Handle vectors of other types
+			elemType := field.Children[0]
+			size := int(field.Size)
+			elemSize, _ := getFieldSize(elemType, refs)
+			totalSize := size * elemSize
+			
+			f.Comment(fmt.Sprintf("%s returns the %s field", methodName, field.Name))
+			f.Comment(fmt.Sprintf("Bytes: %d-%d", offset, offset+totalSize-1))
+			
+			switch elemType.Type {
+			case ssz.TypeUint16:
+				f.Func().Params(jen.Id("s").Id(typeName)).Id(methodName).Params().Op("[").Lit(size).Op("]").Uint16().Block(
+					jen.Id("result").Op(":=").Op("[").Lit(size).Op("]").Uint16().Op("{}"),
+					jen.For(jen.Id("i").Op(":=").Lit(0), jen.Id("i").Op("<").Lit(size), jen.Id("i").Op("++")).Block(
+						jen.Id("result").Index(jen.Id("i")).Op("=").Qual("encoding/binary", "LittleEndian").Dot("Uint16").Call(
+							jen.Id("s").Index(jen.Lit(offset).Op("+").Id("i").Op("*").Lit(2).Op(":").Lit(offset).Op("+").Parens(jen.Id("i").Op("+").Lit(1)).Op("*").Lit(2)),
+						),
+					),
+					jen.Return(jen.Id("result")),
+				)
+			case ssz.TypeUint32:
+				f.Func().Params(jen.Id("s").Id(typeName)).Id(methodName).Params().Op("[").Lit(size).Op("]").Uint32().Block(
+					jen.Id("result").Op(":=").Op("[").Lit(size).Op("]").Uint32().Op("{}"),
+					jen.For(jen.Id("i").Op(":=").Lit(0), jen.Id("i").Op("<").Lit(size), jen.Id("i").Op("++")).Block(
+						jen.Id("result").Index(jen.Id("i")).Op("=").Qual("encoding/binary", "LittleEndian").Dot("Uint32").Call(
+							jen.Id("s").Index(jen.Lit(offset).Op("+").Id("i").Op("*").Lit(4).Op(":").Lit(offset).Op("+").Parens(jen.Id("i").Op("+").Lit(1)).Op("*").Lit(4)),
+						),
+					),
+					jen.Return(jen.Id("result")),
+				)
+			case ssz.TypeUint64:
+				f.Func().Params(jen.Id("s").Id(typeName)).Id(methodName).Params().Op("[").Lit(size).Op("]").Uint64().Block(
+					jen.Id("result").Op(":=").Op("[").Lit(size).Op("]").Uint64().Op("{}"),
+					jen.For(jen.Id("i").Op(":=").Lit(0), jen.Id("i").Op("<").Lit(size), jen.Id("i").Op("++")).Block(
+						jen.Id("result").Index(jen.Id("i")).Op("=").Qual("encoding/binary", "LittleEndian").Dot("Uint64").Call(
+							jen.Id("s").Index(jen.Lit(offset).Op("+").Id("i").Op("*").Lit(8).Op(":").Lit(offset).Op("+").Parens(jen.Id("i").Op("+").Lit(1)).Op("*").Lit(8)),
+						),
+					),
+					jen.Return(jen.Id("result")),
+				)
+			case ssz.TypeRef:
+				f.Func().Params(jen.Id("s").Id(typeName)).Id(methodName).Params().Op("[").Lit(size).Op("]").Id(elemType.Ref).Block(
+					jen.Id("result").Op(":=").Op("[").Lit(size).Op("]").Id(elemType.Ref).Op("{}"),
+					jen.For(jen.Id("i").Op(":=").Lit(0), jen.Id("i").Op("<").Lit(size), jen.Id("i").Op("++")).Block(
+						jen.Id("result").Index(jen.Id("i")).Op("=").Id(elemType.Ref).Call(
+							jen.Id("s").Index(jen.Lit(offset).Op("+").Id("i").Op("*").Lit(elemSize).Op(":").Lit(offset).Op("+").Parens(jen.Id("i").Op("+").Lit(1)).Op("*").Lit(elemSize)),
+						),
+					),
+					jen.Return(jen.Id("result")),
+				)
+			case ssz.TypeVector:
+				// Handle vector of vectors
+				if len(elemType.Children) > 0 && elemType.Children[0].Type == ssz.TypeUint8 {
+					// Vector of bytevectors
+					innerSize := int(elemType.Size)
+					f.Func().Params(jen.Id("s").Id(typeName)).Id(methodName).Params().Op("[").Lit(size).Op("]").Op("[").Lit(innerSize).Op("]").Byte().Block(
+						jen.Id("result").Op(":=").Op("[").Lit(size).Op("]").Op("[").Lit(innerSize).Op("]").Byte().Op("{}"),
+						jen.For(jen.Id("i").Op(":=").Lit(0), jen.Id("i").Op("<").Lit(size), jen.Id("i").Op("++")).Block(
+							jen.Copy(
+								jen.Id("result").Index(jen.Id("i")).Op("[:]"),
+								jen.Id("s").Index(jen.Lit(offset).Op("+").Id("i").Op("*").Lit(innerSize).Op(":").Lit(offset).Op("+").Parens(jen.Id("i").Op("+").Lit(1)).Op("*").Lit(innerSize)),
+							),
+						),
+						jen.Return(jen.Id("result")),
+					)
+				} else if len(elemType.Children) > 0 {
+					// Vector of other vectors
+					innerElemType := elemType.Children[0]
+					innerSize := int(elemType.Size)
+					innerElemSize, _ := getFieldSize(innerElemType, refs)
+					innerTotalSize := innerSize * innerElemSize
+					
+					// Generate type description for the inner vector
+					innerTypeDesc := ""
+					switch innerElemType.Type {
+					case ssz.TypeUint16:
+						innerTypeDesc = "uint16"
+					case ssz.TypeUint32:
+						innerTypeDesc = "uint32"
+					case ssz.TypeUint64:
+						innerTypeDesc = "uint64"
+					case ssz.TypeRef:
+						innerTypeDesc = innerElemType.Ref
+					default:
+						innerTypeDesc = string(innerElemType.Type)
+					}
+					
+					// Generate the getter method
+					f.Comment(fmt.Sprintf("%s returns the %s field", methodName, field.Name))
+					f.Comment(fmt.Sprintf("Bytes: %d-%d (vector[%d] of vector[%d] of %s)", offset, offset+totalSize-1, size, innerSize, innerTypeDesc))
+					
+					// We need to generate a custom type for the return value
+					// For now, return as raw bytes for each inner vector
+					f.Func().Params(jen.Id("s").Id(typeName)).Id(methodName).Params().Op("[").Lit(size).Op("]").Op("[]").Byte().Block(
+						jen.Id("result").Op(":=").Op("[").Lit(size).Op("]").Op("[]").Byte().Op("{}"),
+						jen.For(jen.Id("i").Op(":=").Lit(0), jen.Id("i").Op("<").Lit(size), jen.Id("i").Op("++")).Block(
+							jen.Id("result").Index(jen.Id("i")).Op("=").Id("s").Index(
+								jen.Lit(offset).Op("+").Id("i").Op("*").Lit(innerTotalSize).Op(":").Lit(offset).Op("+").Parens(jen.Id("i").Op("+").Lit(1)).Op("*").Lit(innerTotalSize),
+							),
+						),
+						jen.Return(jen.Id("result")),
+					)
+				} else {
+					// Other vector of vector types - not yet fully supported
+					f.Func().Params(jen.Id("s").Id(typeName)).Id(methodName).Params().Interface().Block(
+						jen.Return(jen.Lit("TODO: implement vector of vector getter")),
+					)
+				}
+			default:
+				// Fallback for unsupported types
+				f.Func().Params(jen.Id("s").Id(typeName)).Id(methodName).Params().Interface().Block(
+					jen.Return(jen.Lit("TODO: implement vector getter")),
+				)
+			}
 		} else {
-			// Handle other vector types generically
+			// Handle vector with no element type
 			f.Comment(fmt.Sprintf("%s returns the %s field", methodName, field.Name))
 			f.Func().Params(jen.Id("s").Id(typeName)).Id(methodName).Params().Interface().Block(
 				jen.Return(jen.Lit("TODO: implement vector getter")),
@@ -584,8 +761,123 @@ func generateSetter(f *jen.File, typeName string, field ssz.Field, offset int, s
 			f.Func().Params(jen.Id("s").Id(typeName)).Id(methodName).Params(jen.Id("v").Op("[").Lit(size).Op("]").Byte()).Block(
 				jen.Copy(jen.Id("s").Index(jen.Lit(offset).Op(":").Lit(offset+size)), jen.Id("v").Index(jen.Op(":"))),
 			)
+		} else if len(field.Children) > 0 {
+			// Handle vectors of other types
+			elemType := field.Children[0]
+			size := int(field.Size)
+			elemSize, _ := getFieldSize(elemType, refs)
+			totalSize := size * elemSize
+			
+			f.Comment(fmt.Sprintf("%s sets the %s field", methodName, field.Name))
+			f.Comment(fmt.Sprintf("Bytes: %d-%d", offset, offset+totalSize-1))
+			
+			switch elemType.Type {
+			case ssz.TypeUint16:
+				f.Func().Params(jen.Id("s").Id(typeName)).Id(methodName).Params(jen.Id("v").Op("[").Lit(size).Op("]").Uint16()).Block(
+					jen.For(jen.Id("i").Op(":=").Lit(0), jen.Id("i").Op("<").Lit(size), jen.Id("i").Op("++")).Block(
+						jen.Qual("encoding/binary", "LittleEndian").Dot("PutUint16").Call(
+							jen.Id("s").Index(jen.Lit(offset).Op("+").Id("i").Op("*").Lit(2).Op(":").Lit(offset).Op("+").Parens(jen.Id("i").Op("+").Lit(1)).Op("*").Lit(2)),
+							jen.Id("v").Index(jen.Id("i")),
+						),
+					),
+				)
+			case ssz.TypeUint32:
+				f.Func().Params(jen.Id("s").Id(typeName)).Id(methodName).Params(jen.Id("v").Op("[").Lit(size).Op("]").Uint32()).Block(
+					jen.For(jen.Id("i").Op(":=").Lit(0), jen.Id("i").Op("<").Lit(size), jen.Id("i").Op("++")).Block(
+						jen.Qual("encoding/binary", "LittleEndian").Dot("PutUint32").Call(
+							jen.Id("s").Index(jen.Lit(offset).Op("+").Id("i").Op("*").Lit(4).Op(":").Lit(offset).Op("+").Parens(jen.Id("i").Op("+").Lit(1)).Op("*").Lit(4)),
+							jen.Id("v").Index(jen.Id("i")),
+						),
+					),
+				)
+			case ssz.TypeUint64:
+				f.Func().Params(jen.Id("s").Id(typeName)).Id(methodName).Params(jen.Id("v").Op("[").Lit(size).Op("]").Uint64()).Block(
+					jen.For(jen.Id("i").Op(":=").Lit(0), jen.Id("i").Op("<").Lit(size), jen.Id("i").Op("++")).Block(
+						jen.Qual("encoding/binary", "LittleEndian").Dot("PutUint64").Call(
+							jen.Id("s").Index(jen.Lit(offset).Op("+").Id("i").Op("*").Lit(8).Op(":").Lit(offset).Op("+").Parens(jen.Id("i").Op("+").Lit(1)).Op("*").Lit(8)),
+							jen.Id("v").Index(jen.Id("i")),
+						),
+					),
+				)
+			case ssz.TypeRef:
+				f.Func().Params(jen.Id("s").Id(typeName)).Id(methodName).Params(jen.Id("v").Op("[").Lit(size).Op("]").Id(elemType.Ref)).Block(
+					jen.For(jen.Id("i").Op(":=").Lit(0), jen.Id("i").Op("<").Lit(size), jen.Id("i").Op("++")).Block(
+						jen.Copy(
+							jen.Id("s").Index(jen.Lit(offset).Op("+").Id("i").Op("*").Lit(elemSize).Op(":").Lit(offset).Op("+").Parens(jen.Id("i").Op("+").Lit(1)).Op("*").Lit(elemSize)),
+							jen.Id("v").Index(jen.Id("i")),
+						),
+					),
+				)
+			case ssz.TypeVector:
+				// Handle vector of vectors
+				if len(elemType.Children) > 0 && elemType.Children[0].Type == ssz.TypeUint8 {
+					// Vector of bytevectors
+					innerSize := int(elemType.Size)
+					f.Func().Params(jen.Id("s").Id(typeName)).Id(methodName).Params(jen.Id("v").Op("[").Lit(size).Op("]").Op("[").Lit(innerSize).Op("]").Byte()).Block(
+						jen.For(jen.Id("i").Op(":=").Lit(0), jen.Id("i").Op("<").Lit(size), jen.Id("i").Op("++")).Block(
+							jen.Copy(
+								jen.Id("s").Index(jen.Lit(offset).Op("+").Id("i").Op("*").Lit(innerSize).Op(":").Lit(offset).Op("+").Parens(jen.Id("i").Op("+").Lit(1)).Op("*").Lit(innerSize)),
+								jen.Id("v").Index(jen.Id("i")).Op("[:]"),
+							),
+						),
+					)
+				} else if len(elemType.Children) > 0 {
+					// Vector of other vectors
+					innerElemType := elemType.Children[0]
+					innerSize := int(elemType.Size)
+					innerElemSize, _ := getFieldSize(innerElemType, refs)
+					innerTotalSize := innerSize * innerElemSize
+					
+					// Generate type description for the inner vector
+					innerTypeDesc := ""
+					switch innerElemType.Type {
+					case ssz.TypeUint16:
+						innerTypeDesc = "uint16"
+					case ssz.TypeUint32:
+						innerTypeDesc = "uint32"
+					case ssz.TypeUint64:
+						innerTypeDesc = "uint64"
+					case ssz.TypeRef:
+						innerTypeDesc = innerElemType.Ref
+					default:
+						innerTypeDesc = string(innerElemType.Type)
+					}
+					
+					// Generate the setter method
+					f.Comment(fmt.Sprintf("%s sets the %s field", methodName, field.Name))
+					f.Comment(fmt.Sprintf("Bytes: %d-%d (vector[%d] of vector[%d] of %s)", offset, offset+totalSize-1, size, innerSize, innerTypeDesc))
+					
+					// Accept raw bytes for each inner vector
+					f.Func().Params(jen.Id("s").Id(typeName)).Id(methodName).Params(jen.Id("v").Op("[").Lit(size).Op("]").Op("[]").Byte()).Block(
+						jen.For(jen.Id("i").Op(":=").Lit(0), jen.Id("i").Op("<").Lit(size), jen.Id("i").Op("++")).Block(
+							jen.If(jen.Len(jen.Id("v").Index(jen.Id("i"))).Op("!=").Lit(innerTotalSize)).Block(
+								jen.Panic(jen.Qual("fmt", "Sprintf").Call(
+									jen.Lit("invalid inner vector size at index %d: expected %d, got %d"),
+									jen.Id("i"),
+									jen.Lit(innerTotalSize),
+									jen.Len(jen.Id("v").Index(jen.Id("i"))),
+								)),
+							),
+							jen.Copy(
+								jen.Id("s").Index(jen.Lit(offset).Op("+").Id("i").Op("*").Lit(innerTotalSize).Op(":").Lit(offset).Op("+").Parens(jen.Id("i").Op("+").Lit(1)).Op("*").Lit(innerTotalSize)),
+								jen.Id("v").Index(jen.Id("i")),
+							),
+						),
+					)
+				} else {
+					// Other vector of vector types - not yet fully supported
+					f.Func().Params(jen.Id("s").Id(typeName)).Id(methodName).Params(jen.Id("v").Interface()).Block(
+						jen.Comment("TODO: implement vector of vector setter"),
+					)
+				}
+			default:
+				// Fallback for unsupported types
+				f.Func().Params(jen.Id("s").Id(typeName)).Id(methodName).Params(jen.Id("v").Interface()).Block(
+					jen.Comment("TODO: implement vector setter"),
+				)
+			}
 		} else {
-			// Handle other vector types generically
+			// Handle vector with no element type
 			f.Comment(fmt.Sprintf("%s sets the %s field", methodName, field.Name))
 			f.Func().Params(jen.Id("s").Id(typeName)).Id(methodName).Params(jen.Id("v").Interface()).Block(
 				jen.Comment("TODO: implement vector setter"),
@@ -787,6 +1079,24 @@ func generateFieldHashing(structDef ssz.Field, offsets []int, refs map[string]ss
 						),
 					)
 				}
+			} else if len(field.Children) > 0 {
+				// Handle vectors of other types
+				elemType := field.Children[0]
+				elemSize, _ := getFieldSize(elemType, refs)
+				numElems := int(field.Size)
+				
+				statements = append(statements,
+					jen.Comment(fmt.Sprintf("Field %s (vector[%d] of %s)", field.Name, field.Size, elemType.Type)),
+				)
+				
+				// For vectors of non-byte types, we need to compute a merkle tree
+				// According to SSZ spec, we pack elements into 32-byte chunks
+				packedHashingCode := generateVectorPackedHashing(elemType, numElems, fieldOffset, elemSize, bufOffset)
+				statements = append(statements,
+					jen.Block(
+						packedHashingCode...,
+					),
+				)
 			} else {
 				statements = append(statements,
 					jen.Comment(fmt.Sprintf("Field %s (vector type not yet supported)", field.Name)),
@@ -805,6 +1115,583 @@ func generateFieldHashing(structDef ssz.Field, offsets []int, refs map[string]ss
 	
 	statements = append(statements, jen.Return(jen.Nil()))
 	return statements
+}
+
+// generateVectorElementHashing generates code to hash elements of a vector
+func generateVectorElementHashing(elemType ssz.Field, numElems int, fieldOffset int, elemSize int) jen.Code {
+	switch elemType.Type {
+	case ssz.TypeUint8:
+		// For uint8, copy directly with padding if needed
+		return jen.For(jen.Id("i").Op(":=").Lit(0), jen.Id("i").Op("<").Lit(numElems), jen.Id("i").Op("++")).Block(
+			jen.Comment("Copy element data"),
+			jen.Id("vecHashBuf").Index(jen.Id("i").Op("*").Lit(32)).Op("=").Id("s").Index(jen.Lit(fieldOffset).Op("+").Id("i")),
+			jen.Comment("Zero padding"),
+			jen.For(jen.Id("j").Op(":=").Id("i").Op("*").Lit(32).Op("+").Lit(1), jen.Id("j").Op("<").Parens(jen.Id("i").Op("+").Lit(1)).Op("*").Lit(32), jen.Id("j").Op("++")).Block(
+				jen.Id("vecHashBuf").Index(jen.Id("j")).Op("=").Lit(0),
+			),
+		)
+	case ssz.TypeUint16, ssz.TypeUint32, ssz.TypeUint64:
+		// For numeric types, hash each element with zero padding
+		return jen.For(jen.Id("i").Op(":=").Lit(0), jen.Id("i").Op("<").Lit(numElems), jen.Id("i").Op("++")).Block(
+			jen.Comment("Copy element data"),
+			jen.Copy(
+				jen.Id("vecHashBuf").Index(jen.Id("i").Op("*").Lit(32).Op(":").Id("i").Op("*").Lit(32).Op("+").Lit(elemSize)),
+				jen.Id("s").Index(jen.Lit(fieldOffset).Op("+").Id("i").Op("*").Lit(elemSize).Op(":").Lit(fieldOffset).Op("+").Parens(jen.Id("i").Op("+").Lit(1)).Op("*").Lit(elemSize)),
+			),
+			jen.Comment("Zero padding"),
+			jen.For(jen.Id("j").Op(":=").Id("i").Op("*").Lit(32).Op("+").Lit(elemSize), jen.Id("j").Op("<").Parens(jen.Id("i").Op("+").Lit(1)).Op("*").Lit(32), jen.Id("j").Op("++")).Block(
+				jen.Id("vecHashBuf").Index(jen.Id("j")).Op("=").Lit(0),
+			),
+		)
+	case ssz.TypeRef:
+		// For reference types, hash each element by calling its HashSSZTo method
+		return jen.For(jen.Id("i").Op(":=").Lit(0), jen.Id("i").Op("<").Lit(numElems), jen.Id("i").Op("++")).Block(
+			jen.Id("elem").Op(":=").Id(elemType.Ref).Call(
+				jen.Id("s").Index(jen.Lit(fieldOffset).Op("+").Id("i").Op("*").Lit(elemSize).Op(":").Lit(fieldOffset).Op("+").Parens(jen.Id("i").Op("+").Lit(1)).Op("*").Lit(elemSize)),
+			),
+			jen.Id("_").Op(",").Err().Op(":=").Id("elem").Dot("HashSSZTo").Call(
+				jen.Id("vecHashBuf").Index(jen.Id("i").Op("*").Lit(32).Op(":").Parens(jen.Id("i").Op("+").Lit(1)).Op("*").Lit(32)),
+			),
+			jen.If(jen.Err().Op("!=").Nil()).Block(
+				jen.Return(jen.Err()),
+			),
+		)
+	case ssz.TypeVector:
+		// For nested vectors, we need to hash each sub-vector
+		if len(elemType.Children) > 0 && elemType.Children[0].Type == ssz.TypeUint8 {
+			// Special case: vector of bytevectors
+			innerSize := int(elemType.Size)
+			if innerSize <= 32 {
+				// Small bytevectors - we can optimize by copying all at once if they align to chunks
+				totalSize := numElems * innerSize
+				
+				// If inner vectors align perfectly with chunk boundaries, we can copy all at once
+				if innerSize == 32 {
+					// Each inner vector is exactly one chunk - copy all at once
+					return jen.Block(
+						jen.Comment("Each bytevector is exactly 32 bytes - copy all at once"),
+						jen.Copy(
+							jen.Id("vecHashBuf"),
+							jen.Id("s").Index(jen.Lit(fieldOffset).Op(":").Lit(fieldOffset+totalSize)),
+						),
+					)
+				} else {
+					// Inner vectors don't align with chunks, need padding between each
+					return jen.For(jen.Id("i").Op(":=").Lit(0), jen.Id("i").Op("<").Lit(numElems), jen.Id("i").Op("++")).Block(
+						jen.Comment("Copy bytevector element"),
+						jen.Copy(
+							jen.Id("vecHashBuf").Index(jen.Id("i").Op("*").Lit(32).Op(":").Id("i").Op("*").Lit(32).Op("+").Lit(innerSize)),
+							jen.Id("s").Index(jen.Lit(fieldOffset).Op("+").Id("i").Op("*").Lit(innerSize).Op(":").Lit(fieldOffset).Op("+").Parens(jen.Id("i").Op("+").Lit(1)).Op("*").Lit(innerSize)),
+						),
+						jen.Comment("Zero padding"),
+						jen.For(jen.Id("j").Op(":=").Id("i").Op("*").Lit(32).Op("+").Lit(innerSize), jen.Id("j").Op("<").Parens(jen.Id("i").Op("+").Lit(1)).Op("*").Lit(32), jen.Id("j").Op("++")).Block(
+							jen.Id("vecHashBuf").Index(jen.Id("j")).Op("=").Lit(0),
+						),
+					)
+				}
+			} else {
+				// Larger bytevectors need to be hashed
+				return jen.For(jen.Id("i").Op(":=").Lit(0), jen.Id("i").Op("<").Lit(numElems), jen.Id("i").Op("++")).Block(
+					jen.Comment("Hash bytevector element"),
+					jen.Id("elemData").Op(":=").Id("s").Index(jen.Lit(fieldOffset).Op("+").Id("i").Op("*").Lit(innerSize).Op(":").Lit(fieldOffset).Op("+").Parens(jen.Id("i").Op("+").Lit(1)).Op("*").Lit(innerSize)),
+					jen.Id("elemRoot").Op(",").Err().Op(":=").Qual("github.com/gfx-labs/ssz/merkle_tree", "BytesRoot").Call(jen.Id("elemData")),
+					jen.If(jen.Err().Op("!=").Nil()).Block(
+						jen.Return(jen.Err()),
+					),
+					jen.Copy(
+						jen.Id("vecHashBuf").Index(jen.Id("i").Op("*").Lit(32).Op(":").Parens(jen.Id("i").Op("+").Lit(1)).Op("*").Lit(32)),
+						jen.Id("elemRoot").Op("[:]"),
+					),
+				)
+			}
+		} else {
+			// General case: vector of vectors with non-byte elements
+			// We need to compute the merkle root of each inner vector using packed hashing
+			innerElems := int(elemType.Size)
+			innerElemType := elemType.Children[0]
+			innerElemSize, _ := getFieldSize(innerElemType, make(map[string]ssz.Field))
+			innerVectorSize := innerElems * innerElemSize
+			
+			// Calculate chunks needed for inner vector
+			innerTotalBytes := innerElems * innerElemSize
+			innerNumChunks := (innerTotalBytes + 31) / 32 // Round up
+			
+			stmts := []jen.Code{
+				jen.Comment("Hash inner vector using packed approach"),
+				jen.Comment("Current inner vector offset"),
+				jen.Id("innerOffset").Op(":=").Lit(fieldOffset).Op("+").Id("i").Op("*").Lit(innerVectorSize),
+			}
+			
+			// For basic types, use packed hashing
+			if innerElemSize < 32 && (innerElemType.Type == ssz.TypeUint8 || innerElemType.Type == ssz.TypeUint16 || 
+				innerElemType.Type == ssz.TypeUint32 || innerElemType.Type == ssz.TypeUint64) {
+				
+				// Calculate total size for all inner vectors
+				totalVectorBytes := numElems * innerTotalBytes
+				
+				// Special optimization: if inner vectors pack perfectly into chunks, we can copy all at once
+				if innerTotalBytes == 32 || (innerTotalBytes < 32 && 32 % innerTotalBytes == 0) {
+					// Can copy all vectors at once and compute roots separately
+					return jen.Block(
+						jen.Comment(fmt.Sprintf("Optimized: Copy all vector data at once (%d vectors × %d bytes = %d bytes total)", numElems, innerTotalBytes, totalVectorBytes)),
+						jen.Comment("Allocate buffer for all inner vector data with padding"),
+						jen.Id("allVecBuf").Op(":=").Qual("github.com/gfx-labs/ssz/merkle_tree/bufpool", "Get").Call(jen.Lit(numElems * innerNumChunks * 32)),
+						jen.Defer().Qual("github.com/gfx-labs/ssz/merkle_tree/bufpool", "Put").Call(jen.Id("allVecBuf")),
+						jen.Id("allVecData").Op(":=").Id("allVecBuf").Dot("B").Op("[:").Lit(numElems * innerNumChunks * 32).Op("]"),
+						jen.Line(),
+						jen.Comment("Copy all vector data at once"),
+						jen.Copy(
+							jen.Id("allVecData").Op("[:").Lit(totalVectorBytes).Op("]"),
+							jen.Id("s").Index(jen.Lit(fieldOffset).Op(":").Lit(fieldOffset+totalVectorBytes)),
+						),
+						jen.Line(),
+						jen.Comment("Zero padding for each inner vector if needed"),
+						jen.If(jen.Lit(innerTotalBytes).Op("%").Lit(32).Op("!=").Lit(0)).Block(
+							jen.For(jen.Id("i").Op(":=").Lit(0), jen.Id("i").Op("<").Lit(numElems), jen.Id("i").Op("++")).Block(
+								jen.Id("vecStart").Op(":=").Id("i").Op("*").Lit(innerNumChunks*32).Op("+").Lit(innerTotalBytes),
+								jen.Id("vecEnd").Op(":=").Parens(jen.Id("i").Op("+").Lit(1)).Op("*").Lit(innerNumChunks*32),
+								jen.For(jen.Id("j").Op(":=").Id("vecStart"), jen.Id("j").Op("<").Id("vecEnd"), jen.Id("j").Op("++")).Block(
+									jen.Id("allVecData").Index(jen.Id("j")).Op("=").Lit(0),
+								),
+							),
+						),
+						jen.Line(),
+						jen.Comment("Compute merkle root for each inner vector"),
+						jen.For(jen.Id("i").Op(":=").Lit(0), jen.Id("i").Op("<").Lit(numElems), jen.Id("i").Op("++")).Block(
+							jen.Id("innerData").Op(":=").Id("allVecData").Index(jen.Id("i").Op("*").Lit(innerNumChunks*32).Op(":").Parens(jen.Id("i").Op("+").Lit(1)).Op("*").Lit(innerNumChunks*32)),
+							jen.If(jen.Err().Op(":=").Qual("github.com/gfx-labs/ssz/merkle_tree", "ComputeMerkleRoot").Call(jen.Id("innerData"), jen.Id("innerData")), jen.Err().Op("!=").Nil()).Block(
+								jen.Return(jen.Err()),
+							),
+							jen.Copy(
+								jen.Id("vecHashBuf").Index(jen.Id("i").Op("*").Lit(32).Op(":").Parens(jen.Id("i").Op("+").Lit(1)).Op("*").Lit(32)),
+								jen.Id("innerData").Op("[:32]"),
+							),
+						),
+					)
+				}
+				
+				// Default case: process each vector individually
+				stmts = append(stmts,
+					jen.Comment(fmt.Sprintf("Pack inner vector elements (%d bytes total, %d chunks)", innerTotalBytes, innerNumChunks)),
+					jen.Id("innerBuf").Op(":=").Qual("github.com/gfx-labs/ssz/merkle_tree/bufpool", "Get").Call(jen.Lit(innerNumChunks).Op("*").Lit(32)),
+					jen.Defer().Qual("github.com/gfx-labs/ssz/merkle_tree/bufpool", "Put").Call(jen.Id("innerBuf")),
+					jen.Id("innerData").Op(":=").Id("innerBuf").Dot("B").Op("[:").Lit(innerNumChunks).Op("*").Lit(32).Op("]"),
+					jen.Comment("Copy inner vector data"),
+					jen.Copy(
+						jen.Id("innerData").Op("[:").Lit(innerTotalBytes).Op("]"),
+						jen.Id("s").Index(jen.Id("innerOffset").Op(":").Id("innerOffset").Op("+").Lit(innerTotalBytes)),
+					),
+					jen.Comment("Zero padding if needed"),
+					jen.If(jen.Lit(innerTotalBytes).Op("%").Lit(32).Op("!=").Lit(0)).Block(
+						jen.For(jen.Id("j").Op(":=").Lit(innerTotalBytes), jen.Id("j").Op("<").Lit(innerNumChunks*32), jen.Id("j").Op("++")).Block(
+							jen.Id("innerData").Index(jen.Id("j")).Op("=").Lit(0),
+						),
+					),
+				)
+			} else {
+				// For larger elements or reference types, use element-wise hashing
+				stmts = append(stmts,
+					jen.Comment("Get buffer for inner vector elements"),
+					jen.Id("innerBuf").Op(":=").Qual("github.com/gfx-labs/ssz/merkle_tree/bufpool", "Get").Call(jen.Lit(innerElems).Op("*").Lit(32)),
+					jen.Defer().Qual("github.com/gfx-labs/ssz/merkle_tree/bufpool", "Put").Call(jen.Id("innerBuf")),
+					jen.Id("innerData").Op(":=").Id("innerBuf").Dot("B").Op("[:").Lit(innerElems).Op("*").Lit(32).Op("]"),
+					generateInnerVectorHashing(innerElemType, innerElems, innerElemSize),
+				)
+			}
+			
+			stmts = append(stmts,
+				jen.Comment("Compute merkle root of inner vector"),
+				jen.If(jen.Err().Op(":=").Qual("github.com/gfx-labs/ssz/merkle_tree", "ComputeMerkleRoot").Call(jen.Id("innerData"), jen.Id("innerData")), jen.Err().Op("!=").Nil()).Block(
+					jen.Return(jen.Err()),
+				),
+				jen.Copy(
+					jen.Id("vecHashBuf").Index(jen.Id("i").Op("*").Lit(32).Op(":").Parens(jen.Id("i").Op("+").Lit(1)).Op("*").Lit(32)),
+					jen.Id("innerData").Op("[:32]"),
+				),
+			)
+			
+			return jen.For(jen.Id("i").Op(":=").Lit(0), jen.Id("i").Op("<").Lit(numElems), jen.Id("i").Op("++")).Block(stmts...)
+		}
+	default:
+		// Fallback for unsupported types
+		return jen.Return(jen.Qual("fmt", "Errorf").Call(jen.Lit(fmt.Sprintf("unsupported vector element type: %s", elemType.Type))))
+	}
+}
+
+// generateInnerVectorHashing generates code to hash elements of an inner vector
+func generateInnerVectorHashing(elemType ssz.Field, numElems int, elemSize int) jen.Code {
+	switch elemType.Type {
+	case ssz.TypeUint8:
+		// For uint8, copy directly with padding
+		return jen.For(jen.Id("j").Op(":=").Lit(0), jen.Id("j").Op("<").Lit(numElems), jen.Id("j").Op("++")).Block(
+			jen.Comment("Copy element data"),
+			jen.Id("innerData").Index(jen.Id("j").Op("*").Lit(32)).Op("=").Id("s").Index(jen.Id("innerOffset").Op("+").Id("j")),
+			jen.Comment("Zero padding"),
+			jen.For(jen.Id("k").Op(":=").Id("j").Op("*").Lit(32).Op("+").Lit(1), jen.Id("k").Op("<").Parens(jen.Id("j").Op("+").Lit(1)).Op("*").Lit(32), jen.Id("k").Op("++")).Block(
+				jen.Id("innerData").Index(jen.Id("k")).Op("=").Lit(0),
+			),
+		)
+	case ssz.TypeUint16, ssz.TypeUint32, ssz.TypeUint64:
+		// For numeric types, copy with padding
+		return jen.For(jen.Id("j").Op(":=").Lit(0), jen.Id("j").Op("<").Lit(numElems), jen.Id("j").Op("++")).Block(
+			jen.Comment("Copy element data"),
+			jen.Copy(
+				jen.Id("innerData").Index(jen.Id("j").Op("*").Lit(32).Op(":").Id("j").Op("*").Lit(32).Op("+").Lit(elemSize)),
+				jen.Id("s").Index(jen.Id("innerOffset").Op("+").Id("j").Op("*").Lit(elemSize).Op(":").Id("innerOffset").Op("+").Parens(jen.Id("j").Op("+").Lit(1)).Op("*").Lit(elemSize)),
+			),
+			jen.Comment("Zero padding"),
+			jen.For(jen.Id("k").Op(":=").Id("j").Op("*").Lit(32).Op("+").Lit(elemSize), jen.Id("k").Op("<").Parens(jen.Id("j").Op("+").Lit(1)).Op("*").Lit(32), jen.Id("k").Op("++")).Block(
+				jen.Id("innerData").Index(jen.Id("k")).Op("=").Lit(0),
+			),
+		)
+	case ssz.TypeRef:
+		// For reference types, hash each element
+		return jen.For(jen.Id("j").Op(":=").Lit(0), jen.Id("j").Op("<").Lit(numElems), jen.Id("j").Op("++")).Block(
+			jen.Id("innerElem").Op(":=").Id(elemType.Ref).Call(
+				jen.Id("s").Index(jen.Id("innerOffset").Op("+").Id("j").Op("*").Lit(elemSize).Op(":").Id("innerOffset").Op("+").Parens(jen.Id("j").Op("+").Lit(1)).Op("*").Lit(elemSize)),
+			),
+			jen.Id("_").Op(",").Err().Op(":=").Id("innerElem").Dot("HashSSZTo").Call(
+				jen.Id("innerData").Index(jen.Id("j").Op("*").Lit(32).Op(":").Parens(jen.Id("j").Op("+").Lit(1)).Op("*").Lit(32)),
+			),
+			jen.If(jen.Err().Op("!=").Nil()).Block(
+				jen.Return(jen.Err()),
+			),
+		)
+	default:
+		// Unsupported types
+		return jen.Return(jen.Qual("fmt", "Errorf").Call(jen.Lit(fmt.Sprintf("unsupported inner vector element type: %s", elemType.Type))))
+	}
+}
+
+// generateVectorPackedHashing generates code to hash a vector with proper element packing per SSZ spec
+func generateVectorPackedHashing(elemType ssz.Field, numElems int, fieldOffset int, elemSize int, bufOffset int) []jen.Code {
+	var statements []jen.Code
+	
+	// According to SSZ spec, elements are packed into 32-byte chunks
+	elementsPerChunk := 32 / elemSize
+	
+	// Special handling for different element types
+	switch elemType.Type {
+	case ssz.TypeUint8, ssz.TypeUint16, ssz.TypeUint32, ssz.TypeUint64:
+		// Basic types that fit multiple per chunk
+		if elemSize < 32 {
+			// Calculate total bytes and chunks needed
+			totalBytes := numElems * elemSize
+			numChunks := (totalBytes + 31) / 32 // Round up
+			
+			statements = append(statements,
+				jen.Comment(fmt.Sprintf("Serialize vector data and pack into chunks (%d elements per chunk)", elementsPerChunk)),
+				jen.Comment(fmt.Sprintf("Total bytes: %d, chunks needed: %d", totalBytes, numChunks)),
+				jen.Id("vecBuf").Op(":=").Qual("github.com/gfx-labs/ssz/merkle_tree/bufpool", "Get").Call(jen.Lit(numChunks).Op("*").Lit(32)),
+				jen.Defer().Qual("github.com/gfx-labs/ssz/merkle_tree/bufpool", "Put").Call(jen.Id("vecBuf")),
+				jen.Id("vecData").Op(":=").Id("vecBuf").Dot("B").Op("[:").Lit(numChunks).Op("*").Lit(32).Op("]"),
+				jen.Line(),
+				jen.Comment("Copy vector data"),
+				jen.Copy(
+					jen.Id("vecData").Op("[:").Lit(totalBytes).Op("]"),
+					jen.Id("s").Index(jen.Lit(fieldOffset).Op(":").Lit(fieldOffset+totalBytes)),
+				),
+				jen.Comment("Zero padding for last chunk if needed"),
+				jen.If(jen.Lit(totalBytes).Op("%").Lit(32).Op("!=").Lit(0)).Block(
+					jen.For(jen.Id("i").Op(":=").Lit(totalBytes), jen.Id("i").Op("<").Lit(numChunks*32), jen.Id("i").Op("++")).Block(
+						jen.Id("vecData").Index(jen.Id("i")).Op("=").Lit(0),
+					),
+				),
+				jen.Line(),
+				jen.Comment("Compute merkle root"),
+				jen.If(jen.Err().Op(":=").Qual("github.com/gfx-labs/ssz/merkle_tree", "ComputeMerkleRoot").Call(jen.Id("vecData"), jen.Id("vecData")), jen.Err().Op("!=").Nil()).Block(
+					jen.Return(jen.Err()),
+				),
+				jen.Copy(jen.Id("buf").Index(jen.Lit(bufOffset).Op(":").Lit(bufOffset+32)), jen.Id("vecData").Op("[:32]")),
+			)
+		} else {
+			// Elements are 32 bytes or larger (e.g., uint256)
+			// Each element gets its own chunk
+			statements = append(statements,
+				jen.Comment("Elements are 32 bytes or larger, each gets its own chunk"),
+				jen.Id("vecBuf").Op(":=").Qual("github.com/gfx-labs/ssz/merkle_tree/bufpool", "Get").Call(jen.Lit(numElems).Op("*").Lit(32)),
+				jen.Defer().Qual("github.com/gfx-labs/ssz/merkle_tree/bufpool", "Put").Call(jen.Id("vecBuf")),
+				jen.Id("vecHashBuf").Op(":=").Id("vecBuf").Dot("B").Op("[:").Lit(numElems).Op("*").Lit(32).Op("]"),
+				jen.Line(),
+				jen.Comment("Copy each element"),
+				jen.For(jen.Id("i").Op(":=").Lit(0), jen.Id("i").Op("<").Lit(numElems), jen.Id("i").Op("++")).Block(
+					jen.Copy(
+						jen.Id("vecHashBuf").Index(jen.Id("i").Op("*").Lit(32).Op(":").Parens(jen.Id("i").Op("+").Lit(1)).Op("*").Lit(32)),
+						jen.Id("s").Index(jen.Lit(fieldOffset).Op("+").Id("i").Op("*").Lit(elemSize).Op(":").Lit(fieldOffset).Op("+").Id("i").Op("*").Lit(elemSize).Op("+").Lit(32)),
+					),
+				),
+				jen.Line(),
+				jen.Comment("Compute merkle root"),
+				jen.If(jen.Err().Op(":=").Qual("github.com/gfx-labs/ssz/merkle_tree", "ComputeMerkleRoot").Call(jen.Id("vecHashBuf"), jen.Id("vecHashBuf")), jen.Err().Op("!=").Nil()).Block(
+					jen.Return(jen.Err()),
+				),
+				jen.Copy(jen.Id("buf").Index(jen.Lit(bufOffset).Op(":").Lit(bufOffset+32)), jen.Id("vecHashBuf").Op("[:32]")),
+			)
+		}
+		
+	case ssz.TypeRef:
+		// Reference types need to be hashed individually first
+		statements = append(statements,
+			jen.Comment("Hash each reference element"),
+			jen.Id("vecBuf").Op(":=").Qual("github.com/gfx-labs/ssz/merkle_tree/bufpool", "Get").Call(jen.Lit(numElems).Op("*").Lit(32)),
+			jen.Defer().Qual("github.com/gfx-labs/ssz/merkle_tree/bufpool", "Put").Call(jen.Id("vecBuf")),
+			jen.Id("vecHashBuf").Op(":=").Id("vecBuf").Dot("B").Op("[:").Lit(numElems).Op("*").Lit(32).Op("]"),
+			jen.Line(),
+			jen.For(jen.Id("i").Op(":=").Lit(0), jen.Id("i").Op("<").Lit(numElems), jen.Id("i").Op("++")).Block(
+				jen.Id("elem").Op(":=").Id(elemType.Ref).Call(
+					jen.Id("s").Index(jen.Lit(fieldOffset).Op("+").Id("i").Op("*").Lit(elemSize).Op(":").Lit(fieldOffset).Op("+").Parens(jen.Id("i").Op("+").Lit(1)).Op("*").Lit(elemSize)),
+				),
+				jen.Id("_").Op(",").Err().Op(":=").Id("elem").Dot("HashSSZTo").Call(
+					jen.Id("vecHashBuf").Index(jen.Id("i").Op("*").Lit(32).Op(":").Parens(jen.Id("i").Op("+").Lit(1)).Op("*").Lit(32)),
+				),
+				jen.If(jen.Err().Op("!=").Nil()).Block(
+					jen.Return(jen.Err()),
+				),
+			),
+			jen.Line(),
+			jen.Comment("Compute merkle root"),
+			jen.If(jen.Err().Op(":=").Qual("github.com/gfx-labs/ssz/merkle_tree", "ComputeMerkleRoot").Call(jen.Id("vecHashBuf"), jen.Id("vecHashBuf")), jen.Err().Op("!=").Nil()).Block(
+				jen.Return(jen.Err()),
+			),
+			jen.Copy(jen.Id("buf").Index(jen.Lit(bufOffset).Op(":").Lit(bufOffset+32)), jen.Id("vecHashBuf").Op("[:32]")),
+		)
+		
+	case ssz.TypeVector:
+		// Nested vectors - delegate to existing logic
+		statements = append(statements,
+			jen.Comment("Get hash buffer for vector elements"),
+			jen.Id("vecBuf").Op(":=").Qual("github.com/gfx-labs/ssz/merkle_tree/bufpool", "Get").Call(jen.Lit(numElems).Op("*").Lit(32)),
+			jen.Defer().Qual("github.com/gfx-labs/ssz/merkle_tree/bufpool", "Put").Call(jen.Id("vecBuf")),
+			jen.Id("vecHashBuf").Op(":=").Id("vecBuf").Dot("B").Op("[:").Lit(numElems).Op("*").Lit(32).Op("]"),
+			jen.Line(),
+			jen.Comment("Hash each element"),
+			generateVectorElementHashing(elemType, numElems, fieldOffset, elemSize),
+			jen.Line(),
+			jen.Comment("Compute merkle root of vector"),
+			jen.If(jen.Err().Op(":=").Qual("github.com/gfx-labs/ssz/merkle_tree", "ComputeMerkleRoot").Call(jen.Id("vecHashBuf"), jen.Id("vecHashBuf")), jen.Err().Op("!=").Nil()).Block(
+				jen.Return(jen.Err()),
+			),
+			jen.Copy(jen.Id("buf").Index(jen.Lit(bufOffset).Op(":").Lit(bufOffset+32)), jen.Id("vecHashBuf").Op("[:32]")),
+		)
+		
+	default:
+		statements = append(statements,
+			jen.Return(jen.Qual("fmt", "Errorf").Call(jen.Lit(fmt.Sprintf("unsupported vector element type for packed hashing: %s", elemType.Type)))),
+		)
+	}
+	
+	return statements
+}
+
+// generateVectorIndexAccessors generates index-based getter methods for vector fields
+func generateVectorIndexAccessors(f *jen.File, typeName string, field ssz.Field, offset int, schema *Schema) error {
+	methodName := capitalizeFirst(field.Name) + "At"
+	refs := make(map[string]ssz.Field)
+	for _, s := range schema.Structs {
+		refs[s.Name] = s.ToSSZField()
+	}
+	
+	if len(field.Children) == 0 {
+		return nil // No element type specified
+	}
+	
+	elemType := field.Children[0]
+	size := int(field.Size)
+	elemSize, err := getFieldSize(elemType, refs)
+	if err != nil {
+		return err
+	}
+	
+	// Generate bounds check helper
+	boundsCheck := jen.If(jen.Id("idx").Op("<").Lit(0).Op("||").Id("idx").Op(">=").Lit(size)).Block(
+		jen.Panic(jen.Qual("fmt", "Sprintf").Call(
+			jen.Lit("index out of bounds: %d not in [0, %d)"),
+			jen.Id("idx"),
+			jen.Lit(size),
+		)),
+	)
+	
+	switch elemType.Type {
+	case ssz.TypeUint8:
+		f.Comment(fmt.Sprintf("%s returns the element at the given index in the %s field", methodName, field.Name))
+		f.Comment(fmt.Sprintf("Panics if index is out of bounds [0, %d)", size))
+		f.Func().Params(jen.Id("s").Id(typeName)).Id(methodName).Params(jen.Id("idx").Int()).Byte().Block(
+			boundsCheck,
+			jen.Return(jen.Id("s").Index(jen.Lit(offset).Op("+").Id("idx"))),
+		)
+		f.Line()
+		
+	case ssz.TypeUint16:
+		f.Comment(fmt.Sprintf("%s returns the element at the given index in the %s field", methodName, field.Name))
+		f.Comment(fmt.Sprintf("Panics if index is out of bounds [0, %d)", size))
+		f.Func().Params(jen.Id("s").Id(typeName)).Id(methodName).Params(jen.Id("idx").Int()).Uint16().Block(
+			boundsCheck,
+			jen.Return(jen.Qual("encoding/binary", "LittleEndian").Dot("Uint16").Call(
+				jen.Id("s").Index(jen.Lit(offset).Op("+").Id("idx").Op("*").Lit(2).Op(":").Lit(offset).Op("+").Parens(jen.Id("idx").Op("+").Lit(1)).Op("*").Lit(2)),
+			)),
+		)
+		f.Line()
+		
+	case ssz.TypeUint32:
+		f.Comment(fmt.Sprintf("%s returns the element at the given index in the %s field", methodName, field.Name))
+		f.Comment(fmt.Sprintf("Panics if index is out of bounds [0, %d)", size))
+		f.Func().Params(jen.Id("s").Id(typeName)).Id(methodName).Params(jen.Id("idx").Int()).Uint32().Block(
+			boundsCheck,
+			jen.Return(jen.Qual("encoding/binary", "LittleEndian").Dot("Uint32").Call(
+				jen.Id("s").Index(jen.Lit(offset).Op("+").Id("idx").Op("*").Lit(4).Op(":").Lit(offset).Op("+").Parens(jen.Id("idx").Op("+").Lit(1)).Op("*").Lit(4)),
+			)),
+		)
+		f.Line()
+		
+	case ssz.TypeUint64:
+		f.Comment(fmt.Sprintf("%s returns the element at the given index in the %s field", methodName, field.Name))
+		f.Comment(fmt.Sprintf("Panics if index is out of bounds [0, %d)", size))
+		f.Func().Params(jen.Id("s").Id(typeName)).Id(methodName).Params(jen.Id("idx").Int()).Uint64().Block(
+			boundsCheck,
+			jen.Return(jen.Qual("encoding/binary", "LittleEndian").Dot("Uint64").Call(
+				jen.Id("s").Index(jen.Lit(offset).Op("+").Id("idx").Op("*").Lit(8).Op(":").Lit(offset).Op("+").Parens(jen.Id("idx").Op("+").Lit(1)).Op("*").Lit(8)),
+			)),
+		)
+		f.Line()
+		
+	case ssz.TypeRef:
+		f.Comment(fmt.Sprintf("%s returns the element at the given index in the %s field", methodName, field.Name))
+		f.Comment(fmt.Sprintf("Panics if index is out of bounds [0, %d)", size))
+		f.Func().Params(jen.Id("s").Id(typeName)).Id(methodName).Params(jen.Id("idx").Int()).Id(elemType.Ref).Block(
+			boundsCheck,
+			jen.Return(jen.Id(elemType.Ref).Call(
+				jen.Id("s").Index(jen.Lit(offset).Op("+").Id("idx").Op("*").Lit(elemSize).Op(":").Lit(offset).Op("+").Parens(jen.Id("idx").Op("+").Lit(1)).Op("*").Lit(elemSize)),
+			)),
+		)
+		f.Line()
+		
+	case ssz.TypeVector:
+		// For nested vectors, return the raw bytes of the inner vector at the index
+		if len(elemType.Children) > 0 && elemType.Children[0].Type == ssz.TypeUint8 {
+			// Vector of bytevectors - return as byte array
+			innerSize := int(elemType.Size)
+			f.Comment(fmt.Sprintf("%s returns the element at the given index in the %s field", methodName, field.Name))
+			f.Comment(fmt.Sprintf("Panics if index is out of bounds [0, %d)", size))
+			f.Func().Params(jen.Id("s").Id(typeName)).Id(methodName).Params(jen.Id("idx").Int()).Op("[").Lit(innerSize).Op("]").Byte().Block(
+				boundsCheck,
+				jen.Return(jen.Op("[").Lit(innerSize).Op("]").Byte().Call(
+					jen.Id("s").Index(jen.Lit(offset).Op("+").Id("idx").Op("*").Lit(innerSize).Op(":").Lit(offset).Op("+").Parens(jen.Id("idx").Op("+").Lit(1)).Op("*").Lit(innerSize)),
+				)),
+			)
+			f.Line()
+		} else {
+			// Other nested vectors - return as byte slice
+			f.Comment(fmt.Sprintf("%s returns the element at the given index in the %s field", methodName, field.Name))
+			f.Comment(fmt.Sprintf("Panics if index is out of bounds [0, %d)", size))
+			f.Func().Params(jen.Id("s").Id(typeName)).Id(methodName).Params(jen.Id("idx").Int()).Op("[]").Byte().Block(
+				boundsCheck,
+				jen.Return(jen.Id("s").Index(
+					jen.Lit(offset).Op("+").Id("idx").Op("*").Lit(elemSize).Op(":").Lit(offset).Op("+").Parens(jen.Id("idx").Op("+").Lit(1)).Op("*").Lit(elemSize),
+				)),
+			)
+			f.Line()
+		}
+	}
+	
+	// Also generate a setter method for individual elements
+	setMethodName := "Set" + capitalizeFirst(field.Name) + "At"
+	
+	switch elemType.Type {
+	case ssz.TypeUint8:
+		f.Comment(fmt.Sprintf("%s sets the element at the given index in the %s field", setMethodName, field.Name))
+		f.Comment(fmt.Sprintf("Panics if index is out of bounds [0, %d)", size))
+		f.Func().Params(jen.Id("s").Id(typeName)).Id(setMethodName).Params(jen.Id("idx").Int(), jen.Id("v").Byte()).Block(
+			boundsCheck,
+			jen.Id("s").Index(jen.Lit(offset).Op("+").Id("idx")).Op("=").Id("v"),
+		)
+		f.Line()
+		
+	case ssz.TypeUint16:
+		f.Comment(fmt.Sprintf("%s sets the element at the given index in the %s field", setMethodName, field.Name))
+		f.Comment(fmt.Sprintf("Panics if index is out of bounds [0, %d)", size))
+		f.Func().Params(jen.Id("s").Id(typeName)).Id(setMethodName).Params(jen.Id("idx").Int(), jen.Id("v").Uint16()).Block(
+			boundsCheck,
+			jen.Qual("encoding/binary", "LittleEndian").Dot("PutUint16").Call(
+				jen.Id("s").Index(jen.Lit(offset).Op("+").Id("idx").Op("*").Lit(2).Op(":").Lit(offset).Op("+").Parens(jen.Id("idx").Op("+").Lit(1)).Op("*").Lit(2)),
+				jen.Id("v"),
+			),
+		)
+		f.Line()
+		
+	case ssz.TypeUint32:
+		f.Comment(fmt.Sprintf("%s sets the element at the given index in the %s field", setMethodName, field.Name))
+		f.Comment(fmt.Sprintf("Panics if index is out of bounds [0, %d)", size))
+		f.Func().Params(jen.Id("s").Id(typeName)).Id(setMethodName).Params(jen.Id("idx").Int(), jen.Id("v").Uint32()).Block(
+			boundsCheck,
+			jen.Qual("encoding/binary", "LittleEndian").Dot("PutUint32").Call(
+				jen.Id("s").Index(jen.Lit(offset).Op("+").Id("idx").Op("*").Lit(4).Op(":").Lit(offset).Op("+").Parens(jen.Id("idx").Op("+").Lit(1)).Op("*").Lit(4)),
+				jen.Id("v"),
+			),
+		)
+		f.Line()
+		
+	case ssz.TypeUint64:
+		f.Comment(fmt.Sprintf("%s sets the element at the given index in the %s field", setMethodName, field.Name))
+		f.Comment(fmt.Sprintf("Panics if index is out of bounds [0, %d)", size))
+		f.Func().Params(jen.Id("s").Id(typeName)).Id(setMethodName).Params(jen.Id("idx").Int(), jen.Id("v").Uint64()).Block(
+			boundsCheck,
+			jen.Qual("encoding/binary", "LittleEndian").Dot("PutUint64").Call(
+				jen.Id("s").Index(jen.Lit(offset).Op("+").Id("idx").Op("*").Lit(8).Op(":").Lit(offset).Op("+").Parens(jen.Id("idx").Op("+").Lit(1)).Op("*").Lit(8)),
+				jen.Id("v"),
+			),
+		)
+		f.Line()
+		
+	case ssz.TypeRef:
+		f.Comment(fmt.Sprintf("%s sets the element at the given index in the %s field", setMethodName, field.Name))
+		f.Comment(fmt.Sprintf("Panics if index is out of bounds [0, %d)", size))
+		f.Func().Params(jen.Id("s").Id(typeName)).Id(setMethodName).Params(jen.Id("idx").Int(), jen.Id("v").Id(elemType.Ref)).Block(
+			boundsCheck,
+			jen.Copy(
+				jen.Id("s").Index(jen.Lit(offset).Op("+").Id("idx").Op("*").Lit(elemSize).Op(":").Lit(offset).Op("+").Parens(jen.Id("idx").Op("+").Lit(1)).Op("*").Lit(elemSize)),
+				jen.Id("v"),
+			),
+		)
+		f.Line()
+		
+	case ssz.TypeVector:
+		// For nested vectors
+		if len(elemType.Children) > 0 && elemType.Children[0].Type == ssz.TypeUint8 {
+			// Vector of bytevectors
+			innerSize := int(elemType.Size)
+			f.Comment(fmt.Sprintf("%s sets the element at the given index in the %s field", setMethodName, field.Name))
+			f.Comment(fmt.Sprintf("Panics if index is out of bounds [0, %d)", size))
+			f.Func().Params(jen.Id("s").Id(typeName)).Id(setMethodName).Params(jen.Id("idx").Int(), jen.Id("v").Op("[").Lit(innerSize).Op("]").Byte()).Block(
+				boundsCheck,
+				jen.Copy(
+					jen.Id("s").Index(jen.Lit(offset).Op("+").Id("idx").Op("*").Lit(innerSize).Op(":").Lit(offset).Op("+").Parens(jen.Id("idx").Op("+").Lit(1)).Op("*").Lit(innerSize)),
+					jen.Id("v").Op("[:]"),
+				),
+			)
+			f.Line()
+		} else {
+			// Other nested vectors
+			f.Comment(fmt.Sprintf("%s sets the element at the given index in the %s field", setMethodName, field.Name))
+			f.Comment(fmt.Sprintf("Panics if index is out of bounds [0, %d)", size))
+			f.Func().Params(jen.Id("s").Id(typeName)).Id(setMethodName).Params(jen.Id("idx").Int(), jen.Id("v").Op("[]").Byte()).Block(
+				boundsCheck,
+				jen.If(jen.Len(jen.Id("v")).Op("!=").Lit(elemSize)).Block(
+					jen.Panic(jen.Qual("fmt", "Sprintf").Call(
+						jen.Lit("invalid vector size: expected %d, got %d"),
+						jen.Lit(elemSize),
+						jen.Len(jen.Id("v")),
+					)),
+				),
+				jen.Copy(
+					jen.Id("s").Index(jen.Lit(offset).Op("+").Id("idx").Op("*").Lit(elemSize).Op(":").Lit(offset).Op("+").Parens(jen.Id("idx").Op("+").Lit(1)).Op("*").Lit(elemSize)),
+					jen.Id("v"),
+				),
+			)
+			f.Line()
+		}
+	}
+	
+	return nil
 }
 
 // capitalizeFirst capitalizes the first letter of a string

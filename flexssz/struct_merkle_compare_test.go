@@ -22,10 +22,6 @@ func TestMerkleCompare(t *testing.T) {
 		state.BlockRoots[i] = make([]byte, 32)
 	}
 
-	//typeInfo, err := flexssz.GetTypeInfo(reflect.TypeOf(state), nil)
-	//require.NoError(t, err)
-	//spew.Dump(typeInfo)
-
 	rootTree, err := flexssz.HashTreeRoot(state)
 	require.NoError(t, err)
 	dzRoot, err := dynssz.NewDynSsz(nil).HashTreeRoot(state)
@@ -33,3 +29,4 @@ func TestMerkleCompare(t *testing.T) {
 
 	require.Equal(t, hex.EncodeToString(dzRoot[:]), hex.EncodeToString(rootTree[:]))
 }
+
