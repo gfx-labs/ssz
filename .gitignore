@@ -1,3 +1,5 @@
 *.test
 *.out
 *.bin
+
+/genssz

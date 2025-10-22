@@ -1,0 +1,130 @@
+version: 1.0.0
+defs:
+  UserProfile:
+    active_fields:
+    - 1
+    - 1
+    - 1
+    - 1
+    children:
+    - name: id
+      def:
+        type: uint64
+      description: 'Required: User ID'
+    - name: username
+      def:
+        type: vector
+        size: 32
+        children:
+        - name: element
+          def:
+            type: uint8
+      description: 'Required: Username hash'
+    - name: email
+      def:
+        type: vector
+        size: 64
+        children:
+        - name: element
+          def:
+            type: uint8
+      description: 'Optional: Email hash (added in v2)'
+    - name: verified
+      def:
+        type: boolean
+      description: 'Optional: Verification status (added in v2)'
+    type: progressive_container
+    description: User profile that can be extended with new optional fields
+  SimpleMessage:
+    active_fields:
+    - 1
+    - 0
+    - 1
+    children:
+    - name: text
+      def:
+        type: vector
+        size: 256
+        children:
+        - name: element
+          def:
+            type: uint8
+      description: Message text (at merkle position 0)
+    - name: timestamp
+      def:
+        type: uint64
+      description: Timestamp (at merkle position 2)
+    type: progressive_container
+    description: Message with reserved merkle position for future expansion
+  ExtendedMessage:
+    active_fields:
+    - 1
+    - 1
+    - 1
+    children:
+    - name: text
+      def:
+        type: vector
+        size: 256
+        children:
+        - name: element
+          def:
+            type: uint8
+      description: Message text (at merkle position 0)
+    - name: priority
+      def:
+        type: uint8
+      description: Priority level (at merkle position 1 - was reserved)
+    - name: timestamp
+      def:
+        type: uint64
+      description: Timestamp (at merkle position 2)
+    type: progressive_container
+    description: Extended message now using the reserved merkle position
+  Config:
+    active_fields:
+    - 1
+    - 1
+    - 1
+    children:
+    - name: max_size
+      def:
+        type: uint64
+      description: Maximum size limit
+    - name: timeout
+      def:
+        type: uint64
+      description: Timeout in seconds
+    - name: enabled
+      def:
+        type: boolean
+      description: Whether feature is enabled
+    type: progressive_container
+    description: Configuration with all optional fields
+  Transaction:
+    active_fields:
+    - 1
+    - 0
+    - 0
+    - 1
+    children:
+    - name: from
+      def:
+        type: vector
+        size: 32
+        children:
+        - name: element
+          def:
+            type: uint8
+      description: Sender address (merkle position 0)
+    - name: amount
+      def:
+        type: uint64
+      description: Amount (merkle position 3)
+    type: progressive_container
+    description: Transaction with reserved positions for future fields
+metadata:
+  namespace: examples.progressive
+  description: Simple examples demonstrating EIP-7495 progressive containers
+  authors:
+  - gfx labs

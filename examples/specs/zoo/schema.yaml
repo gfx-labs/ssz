@@ -1,0 +1,95 @@
+version: 1.0.0
+defs:
+  bytes32:
+    children:
+    - name: element
+      def:
+        type: uint8
+    size: 32
+    type: vector
+  bytes48:
+    children:
+    - name: element
+      def:
+        type: uint8
+    size: 48
+    type: vector
+  bytes96:
+    children:
+    - name: element
+      def:
+        type: uint8
+    size: 96
+    type: vector
+  ClockInRecords:
+    children:
+    - name: epoch
+      def:
+        type: uint64
+      description: Timestamp epoch of clock-in
+    - name: bio_id_scan
+      def:
+        type: ref
+        ref: bytes32
+      description: Biometric ID scan hash
+    - name: poo_log_bits
+      def:
+        type: bitlist
+        limit: 32
+      description: Log of bathroom activities (bitlist)
+    - name: wash_log_bits
+      def:
+        type: bitvector
+        size: 32
+      description: Log of hand-washing activities (bitvector)
+    - name: signature
+      def:
+        type: ref
+        ref: bytes96
+      description: Signature attesting to the record
+    type: container
+  Animal:
+    children:
+    - name: id_hash
+      def:
+        type: ref
+        ref: bytes32
+      description: Unique identifier hash for the animal
+    - name: public_key
+      def:
+        type: ref
+        ref: bytes48
+      description: Animal's public key
+    - name: clock_in_records
+      def:
+        type: list
+        limit: 4294967296
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: ClockInRecords
+      description: List of all clock-in records
+    - name: vaccinated
+      def:
+        type: boolean
+      description: Vaccination status
+    type: container
+  Zoo:
+    children:
+    - name: animals
+      def:
+        type: vector
+        size: 3
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: Animal
+      description: Fixed vector of 3 animals
+    type: container
+metadata:
+  namespace: examples.zoo
+  description: Example SSZ types demonstrating various SSZ features
+  authors:
+  - gfx labs

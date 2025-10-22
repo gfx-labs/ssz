@@ -1,0 +1,88 @@
+version: 1.0.0
+metadata:
+  namespace: vartest
+  description: Test schema for variable-size types in solidssz
+
+defs:
+  # Simple list types
+  ByteList:
+    type: list
+    limit: 256
+    children:
+      - name: elem
+        def:
+          type: uint8
+
+  Uint64List:
+    type: list
+    limit: 100
+    children:
+      - name: elem
+        def:
+          type: uint64
+
+  # Bitlist
+  TestBitList:
+    type: bitlist
+    limit: 512
+
+  # Fixed container (for reference)
+  FixedContainer:
+    type: container
+    children:
+      - name: a
+        def:
+          type: uint32
+      - name: b
+        def:
+          type: uint64
+      - name: c
+        def:
+          type: boolean
+
+  # Variable container with mixed fields
+  VariableContainer:
+    type: container
+    children:
+      - name: fixed_field
+        def:
+          type: uint64
+      - name: data
+        def:
+          type: list
+          limit: 2048
+          children:
+            - name: elem
+              def:
+                type: uint8
+      - name: another_fixed
+        def:
+          type: uint32
+      - name: more_data
+        def:
+          type: list
+          limit: 64
+          children:
+            - name: elem
+              def:
+                type: uint64
+
+  # Container with nested variable container
+  NestedVariableContainer:
+    type: container
+    children:
+      - name: id
+        def:
+          type: uint32
+      - name: nested
+        def:
+          type: ref
+          ref: VariableContainer
+      - name: trailing_data
+        def:
+          type: list
+          limit: 128
+          children:
+            - name: elem
+              def:
+                type: uint8

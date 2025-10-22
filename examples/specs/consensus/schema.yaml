@@ -1,0 +1,2423 @@
+version: 1.0.0
+defs:
+  Root:
+    children:
+    - name: element
+      def:
+        type: uint8
+    size: 32
+    type: vector
+  Signature:
+    children:
+    - name: element
+      def:
+        type: uint8
+    size: 96
+    type: vector
+  BLSPubkey:
+    children:
+    - name: element
+      def:
+        type: uint8
+    size: 48
+    type: vector
+  Checkpoint:
+    children:
+    - name: epoch
+      def:
+        type: uint64
+    - name: root
+      def:
+        type: ref
+        ref: Root
+    type: container
+  AttestationData:
+    children:
+    - name: slot
+      def:
+        type: uint64
+    - name: index
+      def:
+        type: uint64
+    - name: beacon_block_root
+      def:
+        type: vector
+        size: 32
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: source
+      def:
+        type: ref
+        ref: Checkpoint
+    - name: target
+      def:
+        type: ref
+        ref: Checkpoint
+    type: container
+  Attestation:
+    children:
+    - name: aggregation_bits
+      def:
+        type: bitlist
+        limit: 2048
+    - name: data
+      def:
+        type: ref
+        ref: AttestationData
+    - name: signature
+      def:
+        type: ref
+        ref: Signature
+    type: container
+  AggregateAndProof:
+    children:
+    - name: aggregator_index
+      def:
+        type: uint64
+    - name: aggregate
+      def:
+        type: ref
+        ref: Attestation
+    - name: selection_proof
+      def:
+        type: vector
+        size: 96
+        children:
+        - name: element
+          def:
+            type: uint8
+    type: container
+  SignedAggregateAndProof:
+    children:
+    - name: message
+      def:
+        type: ref
+        ref: AggregateAndProof
+    - name: signature
+      def:
+        type: ref
+        ref: Signature
+    type: container
+  DepositData:
+    children:
+    - name: pubkey
+      def:
+        type: ref
+        ref: BLSPubkey
+    - name: withdrawal_credentials
+      def:
+        type: vector
+        size: 32
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: amount
+      def:
+        type: uint64
+    - name: signature
+      def:
+        type: ref
+        ref: Signature
+    type: container
+  Deposit:
+    children:
+    - name: proof
+      def:
+        type: vector
+        size: 33
+        children:
+        - name: element
+          def:
+            type: vector
+            size: 32
+            children:
+            - name: element
+              def:
+                type: uint8
+    - name: data
+      def:
+        type: ref
+        ref: DepositData
+    type: container
+  DepositMessage:
+    children:
+    - name: pubkey
+      def:
+        type: ref
+        ref: BLSPubkey
+    - name: withdrawal_credentials
+      def:
+        type: vector
+        size: 32
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: amount
+      def:
+        type: uint64
+    type: container
+  IndexedAttestation:
+    children:
+    - name: attesting_indices
+      def:
+        type: list
+        limit: 2048
+        children:
+        - name: element
+          def:
+            type: uint64
+    - name: data
+      def:
+        type: ref
+        ref: AttestationData
+    - name: signature
+      def:
+        type: ref
+        ref: Signature
+    type: container
+  PendingAttestation:
+    children:
+    - name: aggregation_bits
+      def:
+        type: bitlist
+        limit: 2048
+    - name: data
+      def:
+        type: ref
+        ref: AttestationData
+    - name: inclusion_delay
+      def:
+        type: uint64
+    - name: proposer_index
+      def:
+        type: uint64
+    type: container
+  Fork:
+    children:
+    - name: previous_version
+      def:
+        type: vector
+        size: 4
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: current_version
+      def:
+        type: vector
+        size: 4
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: epoch
+      def:
+        type: uint64
+    type: container
+  Validator:
+    children:
+    - name: pubkey
+      def:
+        type: ref
+        ref: BLSPubkey
+    - name: withdrawal_credentials
+      def:
+        type: vector
+        size: 32
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: effective_balance
+      def:
+        type: uint64
+    - name: slashed
+      def:
+        type: boolean
+    - name: activation_eligibility_epoch
+      def:
+        type: uint64
+    - name: activation_epoch
+      def:
+        type: uint64
+    - name: exit_epoch
+      def:
+        type: uint64
+    - name: withdrawable_epoch
+      def:
+        type: uint64
+    type: container
+  VoluntaryExit:
+    children:
+    - name: epoch
+      def:
+        type: uint64
+    - name: validator_index
+      def:
+        type: uint64
+    type: container
+  SignedVoluntaryExit:
+    children:
+    - name: message
+      def:
+        type: ref
+        ref: VoluntaryExit
+    - name: signature
+      def:
+        type: ref
+        ref: Signature
+    type: container
+  HistoricalBatch:
+    children:
+    - name: block_roots
+      def:
+        type: vector
+        size: 8192
+        children:
+        - name: element
+          def:
+            type: vector
+            size: 32
+            children:
+            - name: element
+              def:
+                type: uint8
+    - name: state_roots
+      def:
+        type: vector
+        size: 8192
+        children:
+        - name: element
+          def:
+            type: vector
+            size: 32
+            children:
+            - name: element
+              def:
+                type: uint8
+    type: container
+  Eth1Data:
+    children:
+    - name: deposit_root
+      def:
+        type: ref
+        ref: Root
+    - name: deposit_count
+      def:
+        type: uint64
+    - name: block_hash
+      def:
+        type: vector
+        size: 32
+        children:
+        - name: element
+          def:
+            type: uint8
+    type: container
+  SigningRoot:
+    children:
+    - name: object_root
+      def:
+        type: ref
+        ref: Root
+    - name: domain
+      def:
+        type: list
+        limit: 8
+        children:
+        - name: element
+          def:
+            type: uint8
+    type: container
+  BeaconBlockHeader:
+    children:
+    - name: slot
+      def:
+        type: uint64
+    - name: proposer_index
+      def:
+        type: uint64
+    - name: parent_root
+      def:
+        type: ref
+        ref: Root
+    - name: state_root
+      def:
+        type: ref
+        ref: Root
+    - name: body_root
+      def:
+        type: ref
+        ref: Root
+    type: container
+  SignedBeaconBlockHeader:
+    children:
+    - name: message
+      def:
+        type: ref
+        ref: BeaconBlockHeader
+    - name: signature
+      def:
+        type: ref
+        ref: Signature
+    type: container
+  ProposerSlashing:
+    children:
+    - name: signed_header_1
+      def:
+        type: ref
+        ref: SignedBeaconBlockHeader
+    - name: signed_header_2
+      def:
+        type: ref
+        ref: SignedBeaconBlockHeader
+    type: container
+  AttesterSlashing:
+    children:
+    - name: attestation_1
+      def:
+        type: ref
+        ref: IndexedAttestation
+    - name: attestation_2
+      def:
+        type: ref
+        ref: IndexedAttestation
+    type: container
+  Transfer:
+    children:
+    - name: sender
+      def:
+        type: uint64
+    - name: recipient
+      def:
+        type: uint64
+    - name: amount
+      def:
+        type: uint64
+    - name: fee
+      def:
+        type: uint64
+    - name: slot
+      def:
+        type: uint64
+    - name: pubkey
+      def:
+        type: ref
+        ref: BLSPubkey
+    - name: signature
+      def:
+        type: ref
+        ref: Signature
+    type: container
+  ForkData:
+    children:
+    - name: current_version
+      def:
+        type: vector
+        size: 4
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: genesis_validators_root
+      def:
+        type: ref
+        ref: Root
+    type: container
+  SigningData:
+    children:
+    - name: object_root
+      def:
+        type: ref
+        ref: Root
+    - name: domain
+      def:
+        type: vector
+        size: 32
+        children:
+        - name: element
+          def:
+            type: uint8
+    type: container
+  Eth1Block:
+    children:
+    - name: timestamp
+      def:
+        type: uint64
+    - name: deposit_root
+      def:
+        type: ref
+        ref: Root
+    - name: deposit_count
+      def:
+        type: uint64
+    type: container
+  PowBlock:
+    children:
+    - name: block_hash
+      def:
+        type: vector
+        size: 32
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: parent_hash
+      def:
+        type: vector
+        size: 32
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: total_difficulty
+      def:
+        type: vector
+        size: 32
+        children:
+        - name: element
+          def:
+            type: uint8
+    type: container
+  BeaconBlockBodyPhase0:
+    children:
+    - name: randao_reveal
+      def:
+        type: ref
+        ref: Signature
+    - name: eth1_data
+      def:
+        type: ref
+        ref: Eth1Data
+    - name: graffiti
+      def:
+        type: vector
+        size: 32
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: proposer_slashings
+      def:
+        type: list
+        limit: 16
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: ProposerSlashing
+    - name: attester_slashings
+      def:
+        type: list
+        limit: 2
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: AttesterSlashing
+    - name: attestations
+      def:
+        type: list
+        limit: 128
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: Attestation
+    - name: deposits
+      def:
+        type: list
+        limit: 16
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: Deposit
+    - name: voluntary_exits
+      def:
+        type: list
+        limit: 16
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: SignedVoluntaryExit
+    type: container
+  BeaconBlockPhase0:
+    children:
+    - name: slot
+      def:
+        type: uint64
+    - name: proposer_index
+      def:
+        type: uint64
+    - name: parent_root
+      def:
+        type: ref
+        ref: Root
+    - name: state_root
+      def:
+        type: ref
+        ref: Root
+    - name: body
+      def:
+        type: ref
+        ref: BeaconBlockBodyPhase0
+    type: container
+  SignedBeaconBlockPhase0:
+    children:
+    - name: message
+      def:
+        type: ref
+        ref: BeaconBlockPhase0
+    - name: signature
+      def:
+        type: ref
+        ref: Signature
+    type: container
+  BeaconStatePhase0:
+    children:
+    - name: genesis_time
+      def:
+        type: uint64
+    - name: genesis_validators_root
+      def:
+        type: vector
+        size: 32
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: slot
+      def:
+        type: uint64
+    - name: fork
+      def:
+        type: ref
+        ref: Fork
+    - name: latest_block_header
+      def:
+        type: ref
+        ref: BeaconBlockHeader
+    - name: block_roots
+      def:
+        type: vector
+        size: 8192
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: Root
+    - name: state_roots
+      def:
+        type: vector
+        size: 8192
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: Root
+    - name: historical_roots
+      def:
+        type: list
+        limit: 16777216
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: Root
+    - name: eth1_data
+      def:
+        type: ref
+        ref: Eth1Data
+    - name: eth1_data_votes
+      def:
+        type: list
+        limit: 2048
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: Eth1Data
+    - name: eth1_deposit_index
+      def:
+        type: uint64
+    - name: validators
+      def:
+        type: list
+        limit: 4294967296
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: Validator
+    - name: balances
+      def:
+        type: list
+        limit: 4294967296
+        children:
+        - name: element
+          def:
+            type: uint64
+    - name: randao_mixes
+      def:
+        type: vector
+        size: 65536
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: Root
+    - name: slashings
+      def:
+        type: vector
+        size: 8192
+        children:
+        - name: element
+          def:
+            type: uint64
+    - name: previous_epoch_attestations
+      def:
+        type: list
+        limit: 4096
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: PendingAttestation
+    - name: current_epoch_attestations
+      def:
+        type: list
+        limit: 4096
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: PendingAttestation
+    - name: justification_bits
+      def:
+        type: vector
+        size: 1
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: previous_justified_checkpoint
+      def:
+        type: ref
+        ref: Checkpoint
+    - name: current_justified_checkpoint
+      def:
+        type: ref
+        ref: Checkpoint
+    - name: finalized_checkpoint
+      def:
+        type: ref
+        ref: Checkpoint
+    type: container
+  SyncCommittee:
+    children:
+    - name: pubkeys
+      def:
+        type: vector
+        size: 512
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: BLSPubkey
+    - name: aggregate_pubkey
+      def:
+        type: ref
+        ref: BLSPubkey
+    type: container
+  SyncAggregate:
+    children:
+    - name: sync_committee_bits
+      def:
+        type: vector
+        size: 64
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: sync_committee_signature
+      def:
+        type: ref
+        ref: Signature
+    type: container
+  LightClientHeader:
+    children:
+    - name: beacon
+      def:
+        type: ref
+        ref: BeaconBlockHeader
+    type: container
+  LightClientBootstrap:
+    children:
+    - name: header
+      def:
+        type: ref
+        ref: LightClientHeader
+    - name: current_sync_committee
+      def:
+        type: ref
+        ref: SyncCommittee
+    - name: current_sync_committee_branch
+      def:
+        type: vector
+        size: 5
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: Root
+    type: container
+  LightClientFinalityUpdate:
+    children:
+    - name: attested_header
+      def:
+        type: ref
+        ref: LightClientHeader
+    - name: finalized_header
+      def:
+        type: ref
+        ref: LightClientHeader
+    - name: finality_branch
+      def:
+        type: vector
+        size: 6
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: Root
+    - name: sync_aggregate
+      def:
+        type: ref
+        ref: SyncAggregate
+    - name: signature_slot
+      def:
+        type: uint64
+    type: container
+  LightClientOptimisticUpdate:
+    children:
+    - name: attested_header
+      def:
+        type: ref
+        ref: LightClientHeader
+    - name: sync_aggregate
+      def:
+        type: ref
+        ref: SyncAggregate
+    - name: signature_slot
+      def:
+        type: uint64
+    type: container
+  LightClientUpdate:
+    children:
+    - name: attested_header
+      def:
+        type: ref
+        ref: LightClientHeader
+    - name: next_sync_committee
+      def:
+        type: ref
+        ref: SyncCommittee
+    - name: next_sync_committee_branch
+      def:
+        type: vector
+        size: 5
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: Root
+    - name: finalized_header
+      def:
+        type: ref
+        ref: LightClientHeader
+    - name: finality_branch
+      def:
+        type: vector
+        size: 6
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: Root
+    - name: sync_aggregate
+      def:
+        type: ref
+        ref: SyncAggregate
+    - name: signature_slot
+      def:
+        type: uint64
+    type: container
+  BeaconBlockBodyAltair:
+    children:
+    - name: randao_reveal
+      def:
+        type: ref
+        ref: Signature
+    - name: eth1_data
+      def:
+        type: ref
+        ref: Eth1Data
+    - name: graffiti
+      def:
+        type: vector
+        size: 32
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: proposer_slashings
+      def:
+        type: list
+        limit: 16
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: ProposerSlashing
+    - name: attester_slashings
+      def:
+        type: list
+        limit: 2
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: AttesterSlashing
+    - name: attestations
+      def:
+        type: list
+        limit: 128
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: Attestation
+    - name: deposits
+      def:
+        type: list
+        limit: 16
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: Deposit
+    - name: voluntary_exits
+      def:
+        type: list
+        limit: 16
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: SignedVoluntaryExit
+    - name: sync_aggregate
+      def:
+        type: ref
+        ref: SyncAggregate
+    type: container
+  BeaconBlockAltair:
+    children:
+    - name: slot
+      def:
+        type: uint64
+    - name: proposer_index
+      def:
+        type: uint64
+    - name: parent_root
+      def:
+        type: ref
+        ref: Root
+    - name: state_root
+      def:
+        type: ref
+        ref: Root
+    - name: body
+      def:
+        type: ref
+        ref: BeaconBlockBodyAltair
+    type: container
+  SignedBeaconBlockAltair:
+    children:
+    - name: message
+      def:
+        type: ref
+        ref: BeaconBlockAltair
+    - name: signature
+      def:
+        type: ref
+        ref: Signature
+    type: container
+  BeaconStateAltair:
+    children:
+    - name: genesis_time
+      def:
+        type: uint64
+    - name: genesis_validators_root
+      def:
+        type: vector
+        size: 32
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: slot
+      def:
+        type: uint64
+    - name: fork
+      def:
+        type: ref
+        ref: Fork
+    - name: latest_block_header
+      def:
+        type: ref
+        ref: BeaconBlockHeader
+    - name: block_roots
+      def:
+        type: vector
+        size: 8192
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: Root
+    - name: state_roots
+      def:
+        type: vector
+        size: 8192
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: Root
+    - name: historical_roots
+      def:
+        type: list
+        limit: 16777216
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: Root
+    - name: eth1_data
+      def:
+        type: ref
+        ref: Eth1Data
+    - name: eth1_data_votes
+      def:
+        type: list
+        limit: 2048
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: Eth1Data
+    - name: eth1_deposit_index
+      def:
+        type: uint64
+    - name: validators
+      def:
+        type: list
+        limit: 4294967296
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: Validator
+    - name: balances
+      def:
+        type: list
+        limit: 4294967296
+        children:
+        - name: element
+          def:
+            type: uint64
+    - name: randao_mixes
+      def:
+        type: vector
+        size: 65536
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: Root
+    - name: slashings
+      def:
+        type: vector
+        size: 8192
+        children:
+        - name: element
+          def:
+            type: uint64
+    - name: previous_epoch_participation
+      def:
+        type: list
+        limit: 4294967296
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: current_epoch_participation
+      def:
+        type: list
+        limit: 4294967296
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: justification_bits
+      def:
+        type: vector
+        size: 1
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: previous_justified_checkpoint
+      def:
+        type: ref
+        ref: Checkpoint
+    - name: current_justified_checkpoint
+      def:
+        type: ref
+        ref: Checkpoint
+    - name: finalized_checkpoint
+      def:
+        type: ref
+        ref: Checkpoint
+    - name: inactivity_scores
+      def:
+        type: list
+        limit: 4294967296
+        children:
+        - name: element
+          def:
+            type: uint64
+    - name: current_sync_committee
+      def:
+        type: ref
+        ref: SyncCommittee
+    - name: next_sync_committee
+      def:
+        type: ref
+        ref: SyncCommittee
+    type: container
+  SyncCommitteeContribution:
+    children:
+    - name: slot
+      def:
+        type: uint64
+    - name: beacon_block_root
+      def:
+        type: ref
+        ref: Root
+    - name: subcommittee_index
+      def:
+        type: uint64
+    - name: aggregation_bits
+      def:
+        type: vector
+        size: 16
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: signature
+      def:
+        type: ref
+        ref: Signature
+    type: container
+  ContributionAndProof:
+    children:
+    - name: aggregator_index
+      def:
+        type: uint64
+    - name: contribution
+      def:
+        type: ref
+        ref: SyncCommitteeContribution
+    - name: selection_proof
+      def:
+        type: ref
+        ref: Signature
+    type: container
+  SignedContributionAndProof:
+    children:
+    - name: message
+      def:
+        type: ref
+        ref: ContributionAndProof
+    - name: signature
+      def:
+        type: ref
+        ref: Signature
+    type: container
+  SyncCommitteeMessage:
+    children:
+    - name: slot
+      def:
+        type: uint64
+    - name: beacon_block_root
+      def:
+        type: ref
+        ref: Root
+    - name: validator_index
+      def:
+        type: uint64
+    - name: signature
+      def:
+        type: ref
+        ref: Signature
+    type: container
+  SyncAggregatorSelectionData:
+    children:
+    - name: slot
+      def:
+        type: uint64
+    - name: subcommittee_index
+      def:
+        type: uint64
+    type: container
+  ExecutionPayloadHeader:
+    children:
+    - name: parent_hash
+      def:
+        type: vector
+        size: 32
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: fee_recipient
+      def:
+        type: vector
+        size: 20
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: state_root
+      def:
+        type: vector
+        size: 32
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: receipts_root
+      def:
+        type: vector
+        size: 32
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: logs_bloom
+      def:
+        type: vector
+        size: 256
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: prev_randao
+      def:
+        type: vector
+        size: 32
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: block_number
+      def:
+        type: uint64
+    - name: gas_limit
+      def:
+        type: uint64
+    - name: gas_used
+      def:
+        type: uint64
+    - name: timestamp
+      def:
+        type: uint64
+    - name: extra_data
+      def:
+        type: list
+        limit: 32
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: base_fee_per_gas
+      def:
+        type: uint256
+    - name: block_hash
+      def:
+        type: vector
+        size: 32
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: transactions_root
+      def:
+        type: vector
+        size: 32
+        children:
+        - name: element
+          def:
+            type: uint8
+    type: container
+  ExecutionPayload:
+    children:
+    - name: parent_hash
+      def:
+        type: vector
+        size: 32
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: fee_recipient
+      def:
+        type: vector
+        size: 20
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: state_root
+      def:
+        type: vector
+        size: 32
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: receipts_root
+      def:
+        type: vector
+        size: 32
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: logs_bloom
+      def:
+        type: vector
+        size: 256
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: prev_randao
+      def:
+        type: vector
+        size: 32
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: block_number
+      def:
+        type: uint64
+    - name: gas_limit
+      def:
+        type: uint64
+    - name: gas_used
+      def:
+        type: uint64
+    - name: timestamp
+      def:
+        type: uint64
+    - name: extra_data
+      def:
+        type: list
+        limit: 32
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: base_fee_per_gas
+      def:
+        type: uint256
+    - name: block_hash
+      def:
+        type: vector
+        size: 32
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: transactions
+      def:
+        type: list
+        limit: 1048576
+        children:
+        - name: element
+          def:
+            type: list
+            limit: 1073741824
+            children:
+            - name: element
+              def:
+                type: uint8
+    type: container
+  BeaconBlockBodyBellatrix:
+    children:
+    - name: randao_reveal
+      def:
+        type: ref
+        ref: Signature
+    - name: eth1_data
+      def:
+        type: ref
+        ref: Eth1Data
+    - name: graffiti
+      def:
+        type: vector
+        size: 32
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: proposer_slashings
+      def:
+        type: list
+        limit: 16
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: ProposerSlashing
+    - name: attester_slashings
+      def:
+        type: list
+        limit: 2
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: AttesterSlashing
+    - name: attestations
+      def:
+        type: list
+        limit: 128
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: Attestation
+    - name: deposits
+      def:
+        type: list
+        limit: 16
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: Deposit
+    - name: voluntary_exits
+      def:
+        type: list
+        limit: 16
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: SignedVoluntaryExit
+    - name: sync_aggregate
+      def:
+        type: ref
+        ref: SyncAggregate
+    - name: execution_payload
+      def:
+        type: ref
+        ref: ExecutionPayload
+    type: container
+  BeaconBlockBellatrix:
+    children:
+    - name: slot
+      def:
+        type: uint64
+    - name: proposer_index
+      def:
+        type: uint64
+    - name: parent_root
+      def:
+        type: ref
+        ref: Root
+    - name: state_root
+      def:
+        type: ref
+        ref: Root
+    - name: body
+      def:
+        type: ref
+        ref: BeaconBlockBodyBellatrix
+    type: container
+  SignedBeaconBlockBellatrix:
+    children:
+    - name: message
+      def:
+        type: ref
+        ref: BeaconBlockBellatrix
+    - name: signature
+      def:
+        type: ref
+        ref: Signature
+    type: container
+  BlindedBeaconBlockBody:
+    children:
+    - name: randao_reveal
+      def:
+        type: ref
+        ref: Signature
+    - name: eth1_data
+      def:
+        type: ref
+        ref: Eth1Data
+    - name: graffiti
+      def:
+        type: vector
+        size: 32
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: proposer_slashings
+      def:
+        type: list
+        limit: 16
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: ProposerSlashing
+    - name: attester_slashings
+      def:
+        type: list
+        limit: 2
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: AttesterSlashing
+    - name: attestations
+      def:
+        type: list
+        limit: 128
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: Attestation
+    - name: deposits
+      def:
+        type: list
+        limit: 16
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: Deposit
+    - name: voluntary_exits
+      def:
+        type: list
+        limit: 16
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: SignedVoluntaryExit
+    - name: sync_aggregate
+      def:
+        type: ref
+        ref: SyncAggregate
+    - name: execution_payload_header
+      def:
+        type: ref
+        ref: ExecutionPayloadHeader
+    type: container
+  BlindedBeaconBlock:
+    children:
+    - name: slot
+      def:
+        type: uint64
+    - name: proposer_index
+      def:
+        type: uint64
+    - name: parent_root
+      def:
+        type: ref
+        ref: Root
+    - name: state_root
+      def:
+        type: ref
+        ref: Root
+    - name: body
+      def:
+        type: ref
+        ref: BlindedBeaconBlockBody
+    type: container
+  SignedBlindedBeaconBlock:
+    children:
+    - name: message
+      def:
+        type: ref
+        ref: BlindedBeaconBlock
+    - name: signature
+      def:
+        type: ref
+        ref: Signature
+    type: container
+  BeaconStateBellatrix:
+    children:
+    - name: genesis_time
+      def:
+        type: uint64
+    - name: genesis_validators_root
+      def:
+        type: vector
+        size: 32
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: slot
+      def:
+        type: uint64
+    - name: fork
+      def:
+        type: ref
+        ref: Fork
+    - name: latest_block_header
+      def:
+        type: ref
+        ref: BeaconBlockHeader
+    - name: block_roots
+      def:
+        type: vector
+        size: 8192
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: Root
+    - name: state_roots
+      def:
+        type: vector
+        size: 8192
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: Root
+    - name: historical_roots
+      def:
+        type: list
+        limit: 16777216
+        children:
+        - name: element
+          def:
+            type: list
+            limit: 32
+            children:
+            - name: element
+              def:
+                type: uint8
+    - name: eth1_data
+      def:
+        type: ref
+        ref: Eth1Data
+    - name: eth1_data_votes
+      def:
+        type: list
+        limit: 2048
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: Eth1Data
+    - name: eth1_deposit_index
+      def:
+        type: uint64
+    - name: validators
+      def:
+        type: list
+        limit: 4294967296
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: Validator
+    - name: balances
+      def:
+        type: list
+        limit: 4294967296
+        children:
+        - name: element
+          def:
+            type: uint64
+    - name: randao_mixes
+      def:
+        type: vector
+        size: 65536
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: Root
+    - name: slashings
+      def:
+        type: vector
+        size: 8192
+        children:
+        - name: element
+          def:
+            type: uint64
+    - name: previous_epoch_participation
+      def:
+        type: list
+        limit: 4294967296
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: current_epoch_participation
+      def:
+        type: list
+        limit: 4294967296
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: justification_bits
+      def:
+        type: vector
+        size: 1
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: previous_justified_checkpoint
+      def:
+        type: ref
+        ref: Checkpoint
+    - name: current_justified_checkpoint
+      def:
+        type: ref
+        ref: Checkpoint
+    - name: finalized_checkpoint
+      def:
+        type: ref
+        ref: Checkpoint
+    - name: inactivity_scores
+      def:
+        type: list
+        limit: 4294967296
+        children:
+        - name: element
+          def:
+            type: uint64
+    - name: current_sync_committee
+      def:
+        type: ref
+        ref: SyncCommittee
+    - name: next_sync_committee
+      def:
+        type: ref
+        ref: SyncCommittee
+    - name: latest_execution_payload_header
+      def:
+        type: ref
+        ref: ExecutionPayloadHeader
+    type: container
+  Withdrawal:
+    children:
+    - name: index
+      def:
+        type: uint64
+    - name: validator_index
+      def:
+        type: uint64
+    - name: address
+      def:
+        type: vector
+        size: 20
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: amount
+      def:
+        type: uint64
+    type: container
+  BLSToExecutionChange:
+    children:
+    - name: validator_index
+      def:
+        type: uint64
+    - name: from_bls_pubkey
+      def:
+        type: ref
+        ref: BLSPubkey
+    - name: to_execution_address
+      def:
+        type: vector
+        size: 20
+        children:
+        - name: element
+          def:
+            type: uint8
+    type: container
+  SignedBLSToExecutionChange:
+    children:
+    - name: message
+      def:
+        type: ref
+        ref: BLSToExecutionChange
+    - name: signature
+      def:
+        type: ref
+        ref: Signature
+    type: container
+  HistoricalSummary:
+    children:
+    - name: block_summary_root
+      def:
+        type: ref
+        ref: Root
+    - name: state_summary_root
+      def:
+        type: ref
+        ref: Root
+    type: container
+  ExecutionPayloadHeaderCapella:
+    children:
+    - name: parent_hash
+      def:
+        type: vector
+        size: 32
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: fee_recipient
+      def:
+        type: vector
+        size: 20
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: state_root
+      def:
+        type: vector
+        size: 32
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: receipts_root
+      def:
+        type: vector
+        size: 32
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: logs_bloom
+      def:
+        type: vector
+        size: 256
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: prev_randao
+      def:
+        type: vector
+        size: 32
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: block_number
+      def:
+        type: uint64
+    - name: gas_limit
+      def:
+        type: uint64
+    - name: gas_used
+      def:
+        type: uint64
+    - name: timestamp
+      def:
+        type: uint64
+    - name: extra_data
+      def:
+        type: list
+        limit: 32
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: base_fee_per_gas
+      def:
+        type: uint256
+    - name: block_hash
+      def:
+        type: vector
+        size: 32
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: transactions_root
+      def:
+        type: vector
+        size: 32
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: withdrawals_root
+      def:
+        type: vector
+        size: 32
+        children:
+        - name: element
+          def:
+            type: uint8
+    type: container
+  ExecutionPayloadCapella:
+    children:
+    - name: parent_hash
+      def:
+        type: vector
+        size: 32
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: fee_recipient
+      def:
+        type: vector
+        size: 20
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: state_root
+      def:
+        type: vector
+        size: 32
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: receipts_root
+      def:
+        type: vector
+        size: 32
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: logs_bloom
+      def:
+        type: vector
+        size: 256
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: prev_randao
+      def:
+        type: vector
+        size: 32
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: block_number
+      def:
+        type: uint64
+    - name: gas_limit
+      def:
+        type: uint64
+    - name: gas_used
+      def:
+        type: uint64
+    - name: timestamp
+      def:
+        type: uint64
+    - name: extra_data
+      def:
+        type: list
+        limit: 32
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: base_fee_per_gas
+      def:
+        type: uint256
+    - name: block_hash
+      def:
+        type: vector
+        size: 32
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: transactions
+      def:
+        type: list
+        limit: 1048576
+        children:
+        - name: element
+          def:
+            type: list
+            limit: 1073741824
+            children:
+            - name: element
+              def:
+                type: uint8
+    - name: withdrawals
+      def:
+        type: list
+        limit: 16
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: Withdrawal
+    type: container
+  BeaconBlockBodyCapella:
+    children:
+    - name: randao_reveal
+      def:
+        type: ref
+        ref: Signature
+    - name: eth1_data
+      def:
+        type: ref
+        ref: Eth1Data
+    - name: graffiti
+      def:
+        type: vector
+        size: 32
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: proposer_slashings
+      def:
+        type: list
+        limit: 16
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: ProposerSlashing
+    - name: attester_slashings
+      def:
+        type: list
+        limit: 2
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: AttesterSlashing
+    - name: attestations
+      def:
+        type: list
+        limit: 128
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: Attestation
+    - name: deposits
+      def:
+        type: list
+        limit: 16
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: Deposit
+    - name: voluntary_exits
+      def:
+        type: list
+        limit: 16
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: SignedVoluntaryExit
+    - name: sync_aggregate
+      def:
+        type: ref
+        ref: SyncAggregate
+    - name: execution_payload
+      def:
+        type: ref
+        ref: ExecutionPayloadCapella
+    - name: bls_to_execution_changes
+      def:
+        type: list
+        limit: 16
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: SignedBLSToExecutionChange
+    type: container
+  BeaconBlockCapella:
+    children:
+    - name: slot
+      def:
+        type: uint64
+    - name: proposer_index
+      def:
+        type: uint64
+    - name: parent_root
+      def:
+        type: ref
+        ref: Root
+    - name: state_root
+      def:
+        type: ref
+        ref: Root
+    - name: body
+      def:
+        type: ref
+        ref: BeaconBlockBodyCapella
+    type: container
+  SignedBeaconBlockCapella:
+    children:
+    - name: message
+      def:
+        type: ref
+        ref: BeaconBlockCapella
+    - name: signature
+      def:
+        type: ref
+        ref: Signature
+    type: container
+  BeaconStateCapella:
+    children:
+    - name: genesis_time
+      def:
+        type: uint64
+    - name: genesis_validators_root
+      def:
+        type: vector
+        size: 32
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: slot
+      def:
+        type: uint64
+    - name: fork
+      def:
+        type: ref
+        ref: Fork
+    - name: latest_block_header
+      def:
+        type: ref
+        ref: BeaconBlockHeader
+    - name: block_roots
+      def:
+        type: vector
+        size: 8192
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: Root
+    - name: state_roots
+      def:
+        type: vector
+        size: 8192
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: Root
+    - name: historical_roots
+      def:
+        type: list
+        limit: 16777216
+        children:
+        - name: element
+          def:
+            type: list
+            limit: 32
+            children:
+            - name: element
+              def:
+                type: uint8
+    - name: eth1_data
+      def:
+        type: ref
+        ref: Eth1Data
+    - name: eth1_data_votes
+      def:
+        type: list
+        limit: 2048
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: Eth1Data
+    - name: eth1_deposit_index
+      def:
+        type: uint64
+    - name: validators
+      def:
+        type: list
+        limit: 4294967296
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: Validator
+    - name: balances
+      def:
+        type: list
+        limit: 4294967296
+        children:
+        - name: element
+          def:
+            type: uint64
+    - name: randao_mixes
+      def:
+        type: vector
+        size: 65536
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: Root
+    - name: slashings
+      def:
+        type: vector
+        size: 8192
+        children:
+        - name: element
+          def:
+            type: uint64
+    - name: previous_epoch_participation
+      def:
+        type: list
+        limit: 4294967296
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: current_epoch_participation
+      def:
+        type: list
+        limit: 4294967296
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: justification_bits
+      def:
+        type: vector
+        size: 1
+        children:
+        - name: element
+          def:
+            type: uint8
+    - name: previous_justified_checkpoint
+      def:
+        type: ref
+        ref: Checkpoint
+    - name: current_justified_checkpoint
+      def:
+        type: ref
+        ref: Checkpoint
+    - name: finalized_checkpoint
+      def:
+        type: ref
+        ref: Checkpoint
+    - name: inactivity_scores
+      def:
+        type: list
+        limit: 4294967296
+        children:
+        - name: element
+          def:
+            type: uint64
+    - name: current_sync_committee
+      def:
+        type: ref
+        ref: SyncCommittee
+    - name: next_sync_committee
+      def:
+        type: ref
+        ref: SyncCommittee
+    - name: latest_execution_payload_header
+      def:
+        type: ref
+        ref: ExecutionPayloadHeaderCapella
+    - name: next_withdrawal_index
+      def:
+        type: uint64
+    - name: next_withdrawal_validator_index
+      def:
+        type: uint64
+    - name: historical_summaries
+      def:
+        type: list
+        limit: 16777216
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: HistoricalSummary
+    type: container
+  LightClientHeaderCapella:
+    children:
+    - name: beacon
+      def:
+        type: ref
+        ref: BeaconBlockHeader
+    - name: execution
+      def:
+        type: ref
+        ref: ExecutionPayloadHeaderCapella
+    - name: execution_branch
+      def:
+        type: vector
+        size: 4
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: Root
+    type: container
+  LightClientBootstrapCapella:
+    children:
+    - name: header
+      def:
+        type: ref
+        ref: LightClientHeaderCapella
+    - name: current_sync_committee
+      def:
+        type: ref
+        ref: SyncCommittee
+    - name: current_sync_committee_branch
+      def:
+        type: vector
+        size: 5
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: Root
+    type: container
+  LightClientFinalityUpdateCapella:
+    children:
+    - name: attested_header
+      def:
+        type: ref
+        ref: LightClientHeaderCapella
+    - name: finalized_header
+      def:
+        type: ref
+        ref: LightClientHeaderCapella
+    - name: finality_branch
+      def:
+        type: vector
+        size: 6
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: Root
+    - name: sync_aggregate
+      def:
+        type: ref
+        ref: SyncAggregate
+    - name: signature_slot
+      def:
+        type: uint64
+    type: container
+  LightClientOptimisticUpdateCapella:
+    children:
+    - name: attested_header
+      def:
+        type: ref
+        ref: LightClientHeaderCapella
+    - name: sync_aggregate
+      def:
+        type: ref
+        ref: SyncAggregate
+    - name: signature_slot
+      def:
+        type: uint64
+    type: container
+  LightClientUpdateCapella:
+    children:
+    - name: attested_header
+      def:
+        type: ref
+        ref: LightClientHeaderCapella
+    - name: next_sync_committee
+      def:
+        type: ref
+        ref: SyncCommittee
+    - name: next_sync_committee_branch
+      def:
+        type: vector
+        size: 5
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: Root
+    - name: finalized_header
+      def:
+        type: ref
+        ref: LightClientHeaderCapella
+    - name: finality_branch
+      def:
+        type: vector
+        size: 6
+        children:
+        - name: element
+          def:
+            type: ref
+            ref: Root
+    - name: sync_aggregate
+      def:
+        type: ref
+        ref: SyncAggregate
+    - name: signature_slot
+      def:
+        type: uint64
+    type: container
+metadata:
+  namespace: eth2.beacon
+  description: Ethereum Beacon Chain SSZ types
+  authors:
+  - gfx labs
