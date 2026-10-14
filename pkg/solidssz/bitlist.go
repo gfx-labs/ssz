@@ -4,55 +4,34 @@ import (
 	"fmt"
 )
 
-// Bitlist represents an SSZ bitlist with a maximum capacity.
+// Bitlist represents an SSZ bitlist as raw bytes with a sentinel bit.
 // The bitlist is encoded with a sentinel bit to indicate the actual length.
-type Bitlist struct {
-	data  []byte
-	limit uint64 // Maximum number of bits
+// This is a zero-copy type that directly wraps SSZ-encoded bytes.
+type Bitlist []byte
+
+// NewBitlist creates a new empty bitlist.
+func NewBitlist() Bitlist {
+	return Bitlist{0x01} // Start with just the sentinel bit at position 0
 }
 
-// NewBitlist creates a new bitlist with the specified limit.
-func NewBitlist(limit uint64) *Bitlist {
-	return &Bitlist{
-		data:  []byte{0x01}, // Start with just the sentinel bit at position 0
-		limit: limit,
-	}
-}
-
-// NewBitlistFromSSZ creates a bitlist from SSZ-encoded bytes.
+// NewBitlistFromSSZ creates a bitlist from SSZ-encoded bytes (zero-copy).
 // The bytes should include the sentinel bit.
-func NewBitlistFromSSZ(data []byte, limit uint64) (*Bitlist, error) {
-	if len(data) == 0 {
-		return nil, fmt.Errorf("bitlist data cannot be empty")
-	}
-
-	maxBytes := (limit + 7) / 8 + 1 // +1 for potential sentinel bit overflow
-	if uint64(len(data)) > maxBytes {
-		return nil, fmt.Errorf("bitlist data exceeds maximum size: got %d bytes, max %d", len(data), maxBytes)
-	}
-
-	// Make a copy of the data
-	dataCopy := make([]byte, len(data))
-	copy(dataCopy, data)
-
-	return &Bitlist{
-		data:  dataCopy,
-		limit: limit,
-	}, nil
+func NewBitlistFromSSZ(data []byte) Bitlist {
+	return Bitlist(data)
 }
 
 // Len returns the number of bits in the bitlist (not including the sentinel).
-func (b *Bitlist) Len() int {
-	if len(b.data) == 0 {
+func (b Bitlist) Len() int {
+	if len(b) == 0 {
 		return 0
 	}
 
 	// Find the highest set bit (the sentinel)
-	for i := len(b.data) - 1; i >= 0; i-- {
-		if b.data[i] != 0 {
+	for i := len(b) - 1; i >= 0; i-- {
+		if b[i] != 0 {
 			// Find the position of the highest bit in this byte
 			for j := 7; j >= 0; j-- {
-				if b.data[i]&(1<<uint(j)) != 0 {
+				if b[i]&(1<<uint(j)) != 0 {
 					// This is the sentinel bit
 					return i*8 + j
 				}
@@ -63,20 +42,20 @@ func (b *Bitlist) Len() int {
 }
 
 // Get returns the bit at the specified index.
-func (b *Bitlist) Get(index int) (bool, error) {
+func (b Bitlist) Get(index int) (bool, error) {
 	if index < 0 || index >= b.Len() {
 		return false, fmt.Errorf("index %d out of bounds [0, %d)", index, b.Len())
 	}
 
 	byteIndex := index / 8
 	bitIndex := uint(index % 8)
-	return b.data[byteIndex]&(1<<bitIndex) != 0, nil
+	return b[byteIndex]&(1<<bitIndex) != 0, nil
 }
 
 // Set sets the bit at the specified index.
 func (b *Bitlist) Set(index int, value bool) error {
-	if index < 0 || uint64(index) >= b.limit {
-		return fmt.Errorf("index %d out of bounds [0, %d)", index, b.limit)
+	if index < 0 {
+		return fmt.Errorf("index %d out of bounds", index)
 	}
 
 	// Ensure we have enough bytes
@@ -87,19 +66,19 @@ func (b *Bitlist) Set(index int, value bool) error {
 	if index >= currentLen {
 		// We need to move the sentinel bit
 		newDataLen := requiredBytes
-		if newDataLen > len(b.data) {
+		if newDataLen > len(*b) {
 			// Grow the data slice
 			newData := make([]byte, newDataLen)
-			copy(newData, b.data)
-			b.data = newData
+			copy(newData, *b)
+			*b = newData
 		}
 
 		// Clear the old sentinel bit if it exists
 		if currentLen > 0 {
 			oldByteIndex := currentLen / 8
 			oldBitIndex := uint(currentLen % 8)
-			if oldByteIndex < len(b.data) {
-				b.data[oldByteIndex] &^= (1 << oldBitIndex)
+			if oldByteIndex < len(*b) {
+				(*b)[oldByteIndex] &^= (1 << oldBitIndex)
 			}
 		}
 
@@ -109,22 +88,22 @@ func (b *Bitlist) Set(index int, value bool) error {
 		newSentinelBit := uint(newSentinelIndex % 8)
 
 		// Ensure we have space for the sentinel
-		if newSentinelByte >= len(b.data) {
+		if newSentinelByte >= len(*b) {
 			newData := make([]byte, newSentinelByte+1)
-			copy(newData, b.data)
-			b.data = newData
+			copy(newData, *b)
+			*b = newData
 		}
 
-		b.data[newSentinelByte] |= (1 << newSentinelBit)
+		(*b)[newSentinelByte] |= (1 << newSentinelBit)
 	}
 
 	// Set or clear the bit
 	byteIndex := index / 8
 	bitIndex := uint(index % 8)
 	if value {
-		b.data[byteIndex] |= (1 << bitIndex)
+		(*b)[byteIndex] |= (1 << bitIndex)
 	} else {
-		b.data[byteIndex] &^= (1 << bitIndex)
+		(*b)[byteIndex] &^= (1 << bitIndex)
 	}
 
 	return nil
@@ -133,39 +112,26 @@ func (b *Bitlist) Set(index int, value bool) error {
 // Append adds a bit to the end of the bitlist.
 func (b *Bitlist) Append(value bool) error {
 	currentLen := b.Len()
-	if uint64(currentLen) >= b.limit {
-		return fmt.Errorf("bitlist is at maximum capacity (%d bits)", b.limit)
-	}
-
 	return b.Set(currentLen, value)
 }
 
 // SSZBytes returns the SSZ encoding of the bitlist (includes sentinel bit).
-func (b *Bitlist) SSZBytes() []byte {
-	// Return a copy to prevent external modification
-	result := make([]byte, len(b.data))
-	copy(result, b.data)
-	return result
+func (b Bitlist) SSZBytes() []byte {
+	return []byte(b)
 }
 
 // SizeSSZ returns the size of the SSZ encoding in bytes.
-func (b *Bitlist) SizeSSZ() int {
-	return len(b.data)
-}
-
-// MaxSize returns the maximum size in bytes when serialized.
-func (b *Bitlist) MaxSize() uint64 {
-	// Maximum bytes needed for limit bits plus sentinel
-	return (b.limit + 7) / 8 + 1
+func (b Bitlist) SizeSSZ() int {
+	return len(b)
 }
 
 // Clear removes all bits from the bitlist.
 func (b *Bitlist) Clear() {
-	b.data = []byte{0x01} // Reset to just the sentinel bit at position 0
+	*b = Bitlist{0x01} // Reset to just the sentinel bit at position 0
 }
 
 // String returns a string representation of the bitlist.
-func (b *Bitlist) String() string {
+func (b Bitlist) String() string {
 	length := b.Len()
 	if length == 0 {
 		return "[]"

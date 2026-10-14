@@ -55,11 +55,11 @@ func (c ClockInRecords) Signature() [96]byte {
 }
 
 // PooLogBits returns the poo_log_bits field - Log of bathroom activities (bitlist)
-func (c ClockInRecords) PooLogBits() (*solidssz.Bitlist, error) {
+func (c ClockInRecords) PooLogBits() solidssz.Bitlist {
 	// Read offset
 	offset := binary.LittleEndian.Uint32(c[140:144])
 	data := c[offset:]
-	return solidssz.NewBitlistFromSSZ(data, uint64(0x20))
+	return solidssz.NewBitlistFromSSZ(data)
 }
 
 // ClockInRecordsBuilder is a mutable builder for ClockInRecords
@@ -68,7 +68,7 @@ type ClockInRecordsBuilder struct {
 	bioIdScan   []byte
 	washLogBits []byte
 	signature   []byte
-	pooLogBits  *solidssz.Bitlist
+	pooLogBits  solidssz.Bitlist
 }
 
 // NewClockInRecordsBuilder creates a new builder for ClockInRecords
@@ -101,7 +101,7 @@ func (b *ClockInRecordsBuilder) SetSignature(v []byte) *ClockInRecordsBuilder {
 }
 
 // SetPooLogBits sets the poo_log_bits field - Log of bathroom activities (bitlist)
-func (b *ClockInRecordsBuilder) SetPooLogBits(v *solidssz.Bitlist) *ClockInRecordsBuilder {
+func (b *ClockInRecordsBuilder) SetPooLogBits(v solidssz.Bitlist) *ClockInRecordsBuilder {
 	b.pooLogBits = v
 	return b
 }

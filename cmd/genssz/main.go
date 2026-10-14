@@ -3,12 +3,14 @@ package main
 import (
 	"github.com/alecthomas/kong"
 	"github.com/gfx-labs/ssz/pkg/gen/generators/gostructgen"
+	"github.com/gfx-labs/ssz/pkg/gen/generators/pysszgen"
 	"github.com/gfx-labs/ssz/pkg/gen/generators/solidsszgen"
 )
 
 var CLI struct {
 	Solidssz SolidsszCmd `cmd:"" help:"Generate optimized fixed-size SSZ types from cuessz schema"`
 	Gostruct GostructCmd `cmd:"" help:"Generate Go structs with SSZ annotations from schema"`
+	Pyssz    PysszCmd    `cmd:"" help:"Generate Python classes for py-ssz from schema"`
 }
 
 type SolidsszCmd struct {
@@ -27,6 +29,15 @@ type GostructCmd struct {
 
 func (cmd *GostructCmd) Run() error {
 	return gostructgen.Generate(cmd.Output, cmd.Input)
+}
+
+type PysszCmd struct {
+	Output string   `short:"o" help:"Output file path" required:""`
+	Input  []string `arg:"" help:"Input schema files (JSON or YAML)" required:""`
+}
+
+func (cmd *PysszCmd) Run() error {
+	return pysszgen.Generate(cmd.Output, cmd.Input)
 }
 
 func main() {

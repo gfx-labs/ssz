@@ -87,6 +87,8 @@ func GenerateCodeWithContext(packageName string, ctx *GeneratorContext) (map[str
 			} else {
 				err = generateVariableContainerWithBuilder(f, defName, def, ctx)
 			}
+		case cuessz.TypeProgressiveContainer:
+			err = generateProgressiveContainer(f, defName, def, ctx)
 		case cuessz.TypeVector:
 			// Check if elements are fixed or variable size
 			if len(def.Children) > 0 && !isFixedSize(def.Children[0].Def, ctx) {
@@ -938,18 +940,16 @@ func generateBitList(f *jen.File, defName string, def cuessz.Def, ctx *Generator
 	f.Line()
 
 	// Constructor function
-	f.Comment(fmt.Sprintf("New%s creates a new bitlist with limit %d", defName, def.Limit))
-	f.Func().Id(fmt.Sprintf("New%s", defName)).Params().Op("*").Qual("github.com/gfx-labs/ssz/pkg/solidssz", "Bitlist").Block(
-		jen.Return(jen.Qual("github.com/gfx-labs/ssz/pkg/solidssz", "NewBitlist").Call(jen.Lit(def.Limit))),
+	f.Comment(fmt.Sprintf("New%s creates a new bitlist (maximum %d bits)", defName, def.Limit))
+	f.Func().Id(fmt.Sprintf("New%s", defName)).Params().Qual("github.com/gfx-labs/ssz/pkg/solidssz", "Bitlist").Block(
+		jen.Return(jen.Qual("github.com/gfx-labs/ssz/pkg/solidssz", "NewBitlist").Call()),
 	)
 	f.Line()
 
 	// NewFromSSZ constructor
 	f.Comment(fmt.Sprintf("New%sFromSSZ creates a bitlist from SSZ-encoded bytes", defName))
-	f.Func().Id(fmt.Sprintf("New%sFromSSZ", defName)).Params(jen.Id("data").Op("[]").Byte()).Params(jen.Op("*").Qual("github.com/gfx-labs/ssz/pkg/solidssz", "Bitlist"), jen.Error()).Block(
-		jen.Return(jen.Qual("github.com/gfx-labs/ssz/pkg/solidssz", "NewBitlistFromSSZ").Call(
-			jen.Id("data"), jen.Lit(def.Limit),
-		)),
+	f.Func().Id(fmt.Sprintf("New%sFromSSZ", defName)).Params(jen.Id("data").Op("[]").Byte()).Qual("github.com/gfx-labs/ssz/pkg/solidssz", "Bitlist").Block(
+		jen.Return(jen.Qual("github.com/gfx-labs/ssz/pkg/solidssz", "NewBitlistFromSSZ").Call(jen.Id("data"))),
 	)
 	f.Line()
 
@@ -1382,10 +1382,9 @@ func generateVariableContainerVariableGetter(f *jen.File, typeName string, field
 
 	if isBitlist {
 		// For bitlists, we need to deserialize from the stored bytes
-		f.Func().Params(jen.Id("s").Op("*").Id(typeName)).Id(methodName).Params().Params(returnType, jen.Error()).Block(
+		f.Func().Params(jen.Id("s").Op("*").Id(typeName)).Id(methodName).Params().Add(returnType).Block(
 			jen.Return(jen.Qual("github.com/gfx-labs/ssz/pkg/solidssz", "NewBitlistFromSSZ").Call(
 				jen.Id("s").Dot(fieldName),
-				jen.Lit(field.Def.Limit),
 			)),
 		)
 	} else if isListType {

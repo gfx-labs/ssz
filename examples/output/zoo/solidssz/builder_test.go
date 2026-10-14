@@ -9,7 +9,7 @@ import (
 
 func TestClockInRecordsBuilder(t *testing.T) {
 	// Test builder pattern
-	bitlist := solidssz.NewBitlist(32)
+	bitlist := solidssz.NewBitlist()
 	bitlist.Set(0, true)
 	bitlist.Set(5, true)
 
@@ -39,11 +39,8 @@ func TestClockInRecordsBuilder(t *testing.T) {
 		t.Errorf("Deserialized epoch mismatch: expected 12345, got %d", record2.Epoch())
 	}
 
-	// Verify PooLogBits
-	pooLogBits, err := record2.PooLogBits()
-	if err != nil {
-		t.Fatalf("Failed to get PooLogBits: %v", err)
-	}
+	// Verify PooLogBits (zero-copy deserialization)
+	pooLogBits := record2.PooLogBits()
 	if pooLogBits.Len() != bitlist.Len() {
 		t.Errorf("PooLogBits length mismatch: expected %d, got %d", bitlist.Len(), pooLogBits.Len())
 	}
@@ -61,7 +58,7 @@ func TestAnimalBuilder(t *testing.T) {
 	// Create clock-in records list
 	recordsList := NewClockInRecordsList()
 
-	bitlist1 := solidssz.NewBitlist(32)
+	bitlist1 := solidssz.NewBitlist()
 	bitlist1.Set(0, true)
 	record1 := NewClockInRecordsBuilder().
 		SetEpoch(100).
@@ -131,7 +128,7 @@ func TestZooBuilderEndToEnd(t *testing.T) {
 		recordsList := NewClockInRecordsList()
 
 		for j := 0; j < 2; j++ {
-			bitlist := solidssz.NewBitlist(32)
+			bitlist := solidssz.NewBitlist()
 			bitlist.Set(j, true)
 
 			record := NewClockInRecordsBuilder().
@@ -179,7 +176,7 @@ func TestZooBuilderEndToEnd(t *testing.T) {
 
 func TestImmutability(t *testing.T) {
 	// Verify that the types are truly immutable
-	bitlist := solidssz.NewBitlist(32)
+	bitlist := solidssz.NewBitlist()
 	bitlist.Set(1, true)
 
 	record := NewClockInRecordsBuilder().
@@ -206,4 +203,35 @@ func TestImmutability(t *testing.T) {
 	if record2.Epoch() == originalEpoch {
 		t.Logf("Creating new record from SSZ creates a view of the same data")
 	}
+}
+
+func TestBitlistZeroCopy(t *testing.T) {
+	// Demonstrate zero-copy deserialization of Bitlist
+	bitlist := solidssz.NewBitlist()
+	bitlist.Set(0, true)
+	bitlist.Set(3, true)
+	bitlist.Set(7, true)
+
+	// Get the SSZ bytes
+	sszBytes := bitlist.SSZBytes()
+
+	// Deserialize without copying
+	bitlist2 := solidssz.NewBitlistFromSSZ(sszBytes)
+
+	// Verify they have the same content
+	if bitlist2.Len() != bitlist.Len() {
+		t.Errorf("Length mismatch: expected %d, got %d", bitlist.Len(), bitlist2.Len())
+	}
+
+	// Verify specific bits
+	for i := 0; i < bitlist.Len(); i++ {
+		bit1, _ := bitlist.Get(i)
+		bit2, _ := bitlist2.Get(i)
+		if bit1 != bit2 {
+			t.Errorf("Bit %d mismatch: expected %v, got %v", i, bit1, bit2)
+		}
+	}
+
+	t.Logf("Zero-copy deserialization successful: Bitlist(%d bytes, %d bits)",
+		len(sszBytes), bitlist.Len())
 }
